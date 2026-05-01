@@ -21,6 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preset", choices=("smoke", "full", "debug_overfit"), default="full")
     parser.add_argument("--device", default="0,1")
+    parser.add_argument("--batch", type=int, help="Override training batch size")
+    parser.add_argument("--workers", type=int, help="Override dataloader workers")
     parser.add_argument("--data")
     parser.add_argument("--weights")
     parser.add_argument("--project", default=str(ROOT / "runs" / "bubble"))
@@ -59,6 +61,10 @@ def main() -> int:
             "--project",
             args.project,
         ]
+        if args.batch is not None:
+            cmd.extend(["--batch", str(args.batch)])
+        if args.workers is not None:
+            cmd.extend(["--workers", str(args.workers)])
         if args.data:
             cmd.extend(["--data", args.data])
         if args.weights:
