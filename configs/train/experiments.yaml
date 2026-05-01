@@ -28,6 +28,30 @@ experiments:
     modules: balanced-v2-yolo11s-baseline
     use_nwd: false
     train_config: configs/train/balanced_v2_baseline.yaml
+  BV2S_CTL:
+    name: BV2S_CTL_yolo11s_balanced_v2_control
+    model: yolo11s.pt
+    modules: balanced-v2-control-map50
+    use_nwd: false
+    train_config: configs/train/balanced_v2_control.yaml
+  BV3S_A:
+    name: BV3S_A_yolo11s_balanced_v3_uniform
+    model: yolo11s.pt
+    modules: balanced-v3-uniform-map50
+    use_nwd: false
+    train_config: configs/train/balanced_v3_a.yaml
+  BV3S_B:
+    name: BV3S_B_yolo11s_balanced_v3_source_balanced
+    model: yolo11s.pt
+    modules: balanced-v3-source-balanced-map50
+    use_nwd: false
+    train_config: configs/train/balanced_v3_b.yaml
+  BV3S_768:
+    name: BV3S_768_yolo11s_balanced_v3_imgsz768
+    model: yolo11s.pt
+    modules: balanced-v3-imgsz768-map50
+    use_nwd: false
+    train_config: configs/train/balanced_v3_768.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt

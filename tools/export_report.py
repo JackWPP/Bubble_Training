@@ -48,24 +48,28 @@ def main() -> int:
         f"- Project: `{project}`",
         f"- Training dataset: `{values_for(rows, 'data_config') or 'unknown'}`",
         f"- Official eval dataset: `{values_for(rows, 'official_eval_data_config') or 'unknown'}`",
+        "- Primary selector: selection mAP@50 with precision/recall balance constraints.",
         "",
         "## Experiment Summary",
         "",
-        "| Exp | Model | Modules | NWD | Selection mAP@50-95 | Official Val mAP@50-95 | Official Test mAP@50-95 | Best Test | Last Test | Best Epoch | Last Epoch |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Exp | Model | Modules | Sel P | Sel R | Sel mAP@50 | Main Test mAP@50 | OOD Test mAP@50 | mAP@50-95 diag | Selector | Best Conf/F1 | Best Epoch | Last Epoch |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            "| {exp_id} | {model} | {modules} | {nwd_weight} | {selection_map5095} | {official_val_map5095} | {official_test_map5095} | {best_official_test_map5095} | {last_official_test_map5095} | {best_epoch} | {last_epoch} |".format(
+            "| {exp_id} | {model} | {modules} | {selector_precision} | {selector_recall} | {selector_map50} | {main_test_map50} | {ood_test_map50} | {selector_map5095} | {selector_label} | {best_conf} / {best_conf_f1} | {best_epoch} | {last_epoch} |".format(
                 exp_id=row.get("exp_id", ""),
                 model=Path(str(row.get("model", ""))).name,
                 modules=row.get("modules", ""),
-                nwd_weight=fmt(row.get("nwd_weight", "")),
-                selection_map5095=fmt(row.get("selection_map5095", row.get("map5095", ""))),
-                official_val_map5095=fmt(row.get("official_val_map5095", "")),
-                official_test_map5095=fmt(row.get("official_test_map5095", "")),
-                best_official_test_map5095=fmt(row.get("best_official_test_map5095", "")),
-                last_official_test_map5095=fmt(row.get("last_official_test_map5095", "")),
+                selector_precision=fmt(row.get("selector_precision", row.get("precision", ""))),
+                selector_recall=fmt(row.get("selector_recall", row.get("recall", ""))),
+                selector_map50=fmt(row.get("selector_map50", row.get("map50", ""))),
+                main_test_map50=fmt(row.get("main_test_map50", "")),
+                ood_test_map50=fmt(row.get("ood_test_map50", row.get("official_test_map50", ""))),
+                selector_map5095=fmt(row.get("selector_map5095", row.get("map5095", ""))),
+                selector_label=row.get("selector_label", ""),
+                best_conf=fmt(row.get("best_conf", "")),
+                best_conf_f1=fmt(row.get("best_conf_f1", "")),
                 best_epoch=row.get("best_epoch", ""),
                 last_epoch=row.get("last_epoch", ""),
             )
@@ -79,6 +83,7 @@ def main() -> int:
         lines.append(f"- `{row.get('exp_id', run_dir.name)}`: `{run_dir}`")
         lines.append(f"  - weights: `{row.get('best_pt', '')}`")
         lines.append(f"  - last weights: `{row.get('last_pt', '')}`")
+        lines.append(f"  - mAP50-selected weights: `{row.get('map50_selected_pt', '')}`")
         lines.append(f"  - curves: `{run_dir / 'results.png'}`")
         lines.append(f"  - summary: `{run_dir / 'summary.json'}`")
 
@@ -87,10 +92,11 @@ def main() -> int:
             "",
             "## Notes",
             "",
-            "- Selection metrics come from the train-domain dev-val split and are used for checkpoint selection only.",
-            "- Official grouped val/test results should be treated as the paper-level generalization results.",
-            "- Report best.pt and last.pt together when their official test metrics diverge.",
-            "- Compare both mAP@50 and mAP@50-95; dense bubbles may trade precision and recall differently.",
+            "- Selection metrics come from the train-domain validation split and are used for checkpoint selection only.",
+            "- Main test metrics come from the same primary dataset test split.",
+            "- OOD grouped val/test results are retained as stress tests, not checkpoint-selection inputs.",
+            "- Report best.pt, last.pt, and mAP50-selected weights together when their metrics diverge.",
+            "- mAP@50 is the primary detector metric for this phase; mAP@50-95 is a strict localization diagnostic for dense and fuzzy bubbles.",
             "- NWD is a training loss change only in this implementation; NMS and assignment remain Ultralytics defaults.",
         ]
     )

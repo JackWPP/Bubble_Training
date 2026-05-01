@@ -38,7 +38,7 @@ def read_best_row(results_csv: Path) -> dict[str, str]:
     rows = read_rows(results_csv)
     if not rows:
         return {}
-    key = METRIC_KEYS["map5095"]
+    key = METRIC_KEYS["map50"]
     return max(rows, key=lambda row: float(row.get(key, 0.0) or 0.0))
 
 
@@ -65,9 +65,17 @@ def collect(project: Path) -> list[dict[str, Any]]:
         selection = metrics_from(summary, "selection_val_metrics")
         official_val = metrics_from(summary, "official_val_metrics")
         official_test = metrics_from(summary, "official_test_metrics")
+        main_test = metrics_from(summary, "main_test_metrics")
+        ood_val = metrics_from(summary, "ood_val_metrics") or official_val
+        ood_test = metrics_from(summary, "ood_test_metrics") or official_test
+        map50_selected = summary.get("map50_selected", {}) or {}
+        selector_selection = map50_selected.get("selection_val_metrics", {}) or selection
+        selector_main_test = map50_selected.get("main_test_metrics", {}) or main_test
+        conf_sweep = summary.get("conf_sweep", {}) or {}
+        conf_best = conf_sweep.get("best", {}) or {}
         checkpoint_metrics = summary.get("checkpoint_metrics", {})
-        best_official_test = checkpoint_metrics.get("best", {}).get("official_test_metrics", {})
-        last_official_test = checkpoint_metrics.get("last", {}).get("official_test_metrics", {})
+        best_official_test = checkpoint_metrics.get("best", {}).get("ood_test_metrics", checkpoint_metrics.get("best", {}).get("official_test_metrics", {}))
+        last_official_test = checkpoint_metrics.get("last", {}).get("ood_test_metrics", checkpoint_metrics.get("last", {}).get("official_test_metrics", {}))
         row = {
             "exp_id": summary.get("exp_id", run_dir.name.split("_", 1)[0]),
             "name": summary.get("name", run_dir.name),
@@ -83,21 +91,40 @@ def collect(project: Path) -> list[dict[str, Any]]:
             "selection_recall": metric(selection, "recall") or best.get(METRIC_KEYS["recall"], ""),
             "selection_map50": metric(selection, "map50") or best.get(METRIC_KEYS["map50"], ""),
             "selection_map5095": metric(selection, "map5095") or best.get(METRIC_KEYS["map5095"], ""),
+            "selector_label": map50_selected.get("label", ""),
+            "selector_selected_from": map50_selected.get("selected_from", ""),
+            "selector_precision": metric(selector_selection, "precision"),
+            "selector_recall": metric(selector_selection, "recall"),
+            "selector_map50": metric(selector_selection, "map50"),
+            "selector_map5095": metric(selector_selection, "map5095"),
+            "main_test_precision": metric(selector_main_test, "precision"),
+            "main_test_recall": metric(selector_main_test, "recall"),
+            "main_test_map50": metric(selector_main_test, "map50"),
+            "main_test_map5095": metric(selector_main_test, "map5095"),
+            "ood_val_map50": metric(ood_val, "map50"),
+            "ood_val_map5095": metric(ood_val, "map5095"),
+            "ood_test_map50": metric(ood_test, "map50"),
+            "ood_test_map5095": metric(ood_test, "map5095"),
             "official_val_map50": metric(official_val, "map50"),
             "official_val_map5095": metric(official_val, "map5095"),
             "official_test_map50": metric(official_test, "map50"),
             "official_test_map5095": metric(official_test, "map5095"),
             "best_official_test_map5095": metric(best_official_test, "map5095"),
             "last_official_test_map5095": metric(last_official_test, "map5095"),
-            "precision": metric(selection, "precision") or best.get(METRIC_KEYS["precision"], ""),
-            "recall": metric(selection, "recall") or best.get(METRIC_KEYS["recall"], ""),
-            "map50": metric(selection, "map50") or best.get(METRIC_KEYS["map50"], ""),
-            "map5095": metric(selection, "map5095") or best.get(METRIC_KEYS["map5095"], ""),
+            "best_conf": conf_best.get("conf", ""),
+            "best_conf_f1": conf_best.get("f1", ""),
+            "best_conf_precision": conf_best.get("precision", ""),
+            "best_conf_recall": conf_best.get("recall", ""),
+            "precision": metric(selector_selection, "precision") or best.get(METRIC_KEYS["precision"], ""),
+            "recall": metric(selector_selection, "recall") or best.get(METRIC_KEYS["recall"], ""),
+            "map50": metric(selector_selection, "map50") or best.get(METRIC_KEYS["map50"], ""),
+            "map5095": metric(selector_selection, "map5095") or best.get(METRIC_KEYS["map5095"], ""),
             "best_epoch": best.get("epoch", ""),
             "last_epoch": last.get("epoch", ""),
             "run_dir": str(run_dir),
             "best_pt": summary.get("best_pt", str(run_dir / "weights" / "best.pt")),
             "last_pt": summary.get("last_pt", str(run_dir / "weights" / "last.pt")),
+            "map50_selected_pt": summary.get("map50_selected_pt", ""),
         }
         rows.append(row)
     return rows
@@ -134,17 +161,36 @@ def main() -> int:
         "selection_recall",
         "selection_map50",
         "selection_map5095",
+        "selector_label",
+        "selector_selected_from",
+        "selector_precision",
+        "selector_recall",
+        "selector_map50",
+        "selector_map5095",
+        "main_test_precision",
+        "main_test_recall",
+        "main_test_map50",
+        "main_test_map5095",
+        "ood_val_map50",
+        "ood_val_map5095",
+        "ood_test_map50",
+        "ood_test_map5095",
         "official_val_map50",
         "official_val_map5095",
         "official_test_map50",
         "official_test_map5095",
         "best_official_test_map5095",
         "last_official_test_map5095",
+        "best_conf",
+        "best_conf_f1",
+        "best_conf_precision",
+        "best_conf_recall",
         "best_epoch",
         "last_epoch",
         "run_dir",
         "best_pt",
         "last_pt",
+        "map50_selected_pt",
     ]
     with out_csv.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

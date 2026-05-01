@@ -42,6 +42,9 @@ GROUP_TEST_RATIO = 0.15
 BALANCED_TRAIN_RATIO = 0.70
 BALANCED_VAL_RATIO = 0.15
 BALANCED_TEST_RATIO = 0.15
+BALANCED_V3_TRAIN_RATIO = 0.60
+BALANCED_V3_VAL_RATIO = 0.20
+BALANCED_V3_TEST_RATIO = 0.20
 SEED = 42
 CLASS_ID = 0
 CLASS_NAME = "bubble"
@@ -329,6 +332,31 @@ def split_sources_balanced_v2(items: list[SourceImage], seed: int) -> dict[str, 
     return splits
 
 
+def split_sources_balanced_v3(items: list[SourceImage], seed: int) -> dict[str, list[SourceImage]]:
+    """Split each source/group by source_key with a larger val/test share."""
+    rng = random.Random(seed)
+    splits: dict[str, list[SourceImage]] = {"train": [], "val": [], "test": []}
+    two_key_toggle = 0
+
+    by_source: dict[str, list[SourceImage]] = defaultdict(list)
+    for item in items:
+        by_source[item.source].append(item)
+
+    for source in sorted(by_source):
+        by_group: dict[str, list[SourceImage]] = defaultdict(list)
+        for item in by_source[source]:
+            by_group[item.group_key].append(item)
+        for group_key in sorted(by_group):
+            group_items = sorted(by_group[group_key], key=lambda item: item.source_key)
+            assigned, two_key_toggle = split_source_key_bucket_v3(group_items, rng, two_key_toggle)
+            for split, split_items in assigned.items():
+                splits[split].extend(split_items)
+
+    for split in splits:
+        splits[split].sort(key=lambda item: (item.source, item.group_key, item.source_key))
+    return splits
+
+
 def split_source_key_bucket(items: list[SourceImage], rng: random.Random) -> dict[str, list[SourceImage]]:
     """Split a same-source/same-group bucket without source_key leakage."""
     by_key: dict[str, list[SourceImage]] = defaultdict(list)
@@ -361,6 +389,49 @@ def split_source_key_bucket(items: list[SourceImage], rng: random.Random) -> dic
         split: [item for key in split_keys[split] for item in by_key[key]]
         for split in ("train", "val", "test")
     }
+
+
+def split_source_key_bucket_v3(
+    items: list[SourceImage],
+    rng: random.Random,
+    two_key_toggle: int,
+) -> tuple[dict[str, list[SourceImage]], int]:
+    """Split a same-source/same-group bucket for balanced-v3 without source_key leakage."""
+    by_key: dict[str, list[SourceImage]] = defaultdict(list)
+    for item in items:
+        by_key[item.source_key].append(item)
+
+    keys = sorted(by_key)
+    rng.shuffle(keys)
+    n = len(keys)
+    if n == 1:
+        counts = {"train": 1, "val": 0, "test": 0}
+    elif n == 2:
+        holdout = "val" if two_key_toggle % 2 == 0 else "test"
+        counts = {"train": 1, "val": 1 if holdout == "val" else 0, "test": 1 if holdout == "test" else 0}
+        two_key_toggle += 1
+    elif n == 3:
+        counts = {"train": 1, "val": 1, "test": 1}
+    else:
+        n_val = max(1, round(n * BALANCED_V3_VAL_RATIO))
+        n_test = max(1, round(n * BALANCED_V3_TEST_RATIO))
+        if n_val + n_test >= n:
+            n_val = 1
+            n_test = 1
+        counts = {"train": n - n_val - n_test, "val": n_val, "test": n_test}
+
+    split_keys = {
+        "train": keys[: counts["train"]],
+        "val": keys[counts["train"] : counts["train"] + counts["val"]],
+        "test": keys[counts["train"] + counts["val"] :],
+    }
+    return (
+        {
+            split: [item for key in split_keys[split] for item in by_key[key]]
+            for split in ("train", "val", "test")
+        },
+        two_key_toggle,
+    )
 
 
 def choose_balanced_group_assignment(group_items: list[tuple[str, list[SourceImage]]]) -> dict[str, str]:
@@ -584,6 +655,14 @@ def transform_noise(image: np.ndarray, rng: np.random.Generator, std: float = 6.
     return np.clip(image.astype(np.float32) + noise, 0, 255).astype(np.uint8)
 
 
+def transform_photometric_low(image: np.ndarray) -> np.ndarray:
+    return transform_hsv(transform_brightness(image, 0.92), -2, 0.96, 0.98)
+
+
+def transform_photometric_high(image: np.ndarray) -> np.ndarray:
+    return transform_hsv(transform_contrast(image, 1.08), 2, 1.04, 1.04)
+
+
 def extract_crops(train_images: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]]]]) -> list[dict]:
     crops: list[dict] = []
     for image, labels in train_images:
@@ -741,6 +820,7 @@ def augment_train(
     output_dir: Path,
     seed: int,
     profile: str = "full",
+    v3_profile: str = "uniform",
 ) -> list[OutputSample]:
     rng = random.Random(seed + 1)
     np_rng = np.random.default_rng(seed + 1)
@@ -749,6 +829,9 @@ def augment_train(
     crops = extract_crops([(image, labels) for image, labels, _ in train_base_images])
 
     if profile == "balanced-v2":
+        geometric_transforms = [("hflip", transform_hflip)]
+        copy_paste_count = 0
+    elif profile == "balanced-v3":
         geometric_transforms = [("hflip", transform_hflip)]
         copy_paste_count = 0
     else:
@@ -775,15 +858,27 @@ def augment_train(
                 OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, base_sample.group_key, suffix, aug_labels)
             )
 
-        photometric = [
-            ("bright085", transform_brightness(image, 0.85)),
-            ("bright115", transform_brightness(image, 1.15)),
-            ("contrast090", transform_contrast(image, 0.90)),
-            ("contrast110", transform_contrast(image, 1.10)),
-            ("hsv_warm", transform_hsv(image, 4, 1.08, 1.04)),
-            ("hsv_cool", transform_hsv(image, -4, 0.92, 0.96)),
-            ("noise", transform_noise(image, np_rng)),
-        ]
+        if profile == "balanced-v3":
+            photometric = [
+                ("photometric_low", transform_photometric_low(image)),
+                ("photometric_high", transform_photometric_high(image)),
+                ("noise_std4", transform_noise(image, np_rng, std=4.0)),
+            ]
+            if v3_profile == "source-balanced":
+                if base_sample.source.startswith("job_13"):
+                    photometric = [("photometric_low", transform_photometric_low(image))]
+                elif base_sample.source in {"bubble_1", "bubble_fc", "bubble_pad"}:
+                    photometric.append(("contrast110", transform_contrast(image, 1.10)))
+        else:
+            photometric = [
+                ("bright085", transform_brightness(image, 0.85)),
+                ("bright115", transform_brightness(image, 1.15)),
+                ("contrast090", transform_contrast(image, 0.90)),
+                ("contrast110", transform_contrast(image, 1.10)),
+                ("hsv_warm", transform_hsv(image, 4, 1.08, 1.04)),
+                ("hsv_cool", transform_hsv(image, -4, 0.92, 0.96)),
+                ("noise", transform_noise(image, np_rng)),
+            ]
         for suffix, aug_image in photometric:
             name = unique_name(f"{stem}_{suffix}.jpg", used_names)
             write_image_and_label(output_dir, "train", name, aug_image, labels)
@@ -898,6 +993,33 @@ def summarize_numbers(values: list[float]) -> dict:
         "max": round(float(arr.max()), 3),
         "mean": round(float(arr.mean()), 3),
     }
+
+
+def summarize_label_dimensions(output_dir: Path) -> dict:
+    by_split: dict[str, dict] = {}
+    for split in ["train", "val", "test"]:
+        widths: list[float] = []
+        heights: list[float] = []
+        for label_path in (output_dir / split / "labels").glob("*.txt"):
+            for line in label_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) != 5:
+                    continue
+                _cls, _cx, _cy, bw, bh = [float(part) for part in parts]
+                widths.append(bw * TILE_SIZE)
+                heights.append(bh * TILE_SIZE)
+        total = len(widths)
+        small = sum(1 for width, height in zip(widths, heights) if width < 16 or height < 16)
+        by_split[split] = {
+            "boxes": total,
+            "small_lt16": small,
+            "small_lt16_percent": round(small / total * 100, 3) if total else 0.0,
+            "width_px": summarize_numbers(widths),
+            "height_px": summarize_numbers(heights),
+        }
+    return by_split
 
 
 def manifest_to_json(manifest: list[OutputSample]) -> list[dict]:
@@ -1197,6 +1319,22 @@ def write_balanced_v2_report(output_dir: Path, source_stats: dict, build_stats: 
     Path("DATASET_BALANCED_V2_BUILD_REPORT.md").write_text(report, encoding="utf-8")
 
 
+def write_balanced_v3_report(output_dir: Path, source_stats: dict, build_stats: dict, validation: dict) -> None:
+    write_grouped_report(output_dir, source_stats, build_stats, validation)
+    report_path = output_dir / "DATASET_BUILD_REPORT.md"
+    report = report_path.read_text(encoding="utf-8")
+    report += (
+        "\n## Balanced V3 Notes\n\n"
+        "- split target: train/val/test = 0.60/0.20/0.20\n"
+        f"- augmentation profile: `{build_stats.get('augmentation', {}).get('v3_profile', 'uniform')}`\n"
+        "- source_key leakage is forbidden; group leakage is expected for this main-training split.\n"
+        "- Primary detector metrics for this phase are mAP@50, precision, and recall; mAP@50-95 is kept as a localization diagnostic.\n"
+    )
+    report_path.write_text(report, encoding="utf-8")
+    Path("DATASET_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+    Path("DATASET_BALANCED_V3_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+
+
 def summarize_output_balance(manifest: list[OutputSample]) -> dict:
     source_names = sorted({item.source for item in manifest})
     source_summary = {}
@@ -1250,9 +1388,15 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("yolo_dataset_grouped"))
     parser.add_argument(
         "--split-mode",
-        choices=["group", "source", "balanced-v2", "balanced_v2"],
+        choices=["group", "source", "balanced-v2", "balanced_v2", "balanced-v3", "balanced_v3"],
         default="group",
-        help="group isolates coarse physical sources; source keeps legacy per-image random split; balanced-v2 is the main experiment split.",
+        help="group isolates coarse physical sources; source keeps legacy per-image random split; balanced-v2/v3 are main experiment splits.",
+    )
+    parser.add_argument(
+        "--v3-profile",
+        choices=["uniform", "source-balanced"],
+        default="uniform",
+        help="balanced-v3 train augmentation profile.",
     )
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
@@ -1264,16 +1408,19 @@ def main() -> None:
     output_dir = args.output.resolve()
     ensure_clean_output(output_dir)
 
-    split_mode = "balanced-v2" if args.split_mode == "balanced_v2" else args.split_mode
+    split_aliases = {"balanced_v2": "balanced-v2", "balanced_v3": "balanced-v3"}
+    split_mode = split_aliases.get(args.split_mode, args.split_mode)
     sources, source_stats = load_coco_sources(input_dir)
     if split_mode == "group":
         splits = split_sources_by_group(sources, args.seed)
     elif split_mode == "balanced-v2":
         splits = split_sources_balanced_v2(sources, args.seed)
+    elif split_mode == "balanced-v3":
+        splits = split_sources_balanced_v3(sources, args.seed)
     else:
         splits = split_sources(sources, args.seed)
     base_manifest, train_base_images, generation_stats = generate_base_samples(splits, output_dir, args.seed)
-    augmented_manifest = augment_train(train_base_images, output_dir, args.seed, profile=split_mode)
+    augmented_manifest = augment_train(train_base_images, output_dir, args.seed, profile=split_mode, v3_profile=args.v3_profile)
     manifest = base_manifest + augmented_manifest
 
     write_yaml(output_dir)
@@ -1288,13 +1435,14 @@ def main() -> None:
         split: Counter(item.group_key for item in items)
         for split, items in splits.items()
     }
-    split_ratio = (
-        {"train": GROUP_TRAIN_RATIO, "val": GROUP_VAL_RATIO, "test": GROUP_TEST_RATIO}
-        if split_mode == "group"
-        else {"train": BALANCED_TRAIN_RATIO, "val": BALANCED_VAL_RATIO, "test": BALANCED_TEST_RATIO}
-        if split_mode == "balanced-v2"
-        else {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO}
-    )
+    if split_mode == "group":
+        split_ratio = {"train": GROUP_TRAIN_RATIO, "val": GROUP_VAL_RATIO, "test": GROUP_TEST_RATIO}
+    elif split_mode == "balanced-v2":
+        split_ratio = {"train": BALANCED_TRAIN_RATIO, "val": BALANCED_VAL_RATIO, "test": BALANCED_TEST_RATIO}
+    elif split_mode == "balanced-v3":
+        split_ratio = {"train": BALANCED_V3_TRAIN_RATIO, "val": BALANCED_V3_VAL_RATIO, "test": BALANCED_V3_TEST_RATIO}
+    else:
+        split_ratio = {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO}
     build_stats = {
         "seed": args.seed,
         "split_mode": split_mode,
@@ -1309,7 +1457,9 @@ def main() -> None:
         "augmentation": {
             "train_base_samples": len(train_base_images),
             "augmented_train_samples": len(augmented_manifest),
+            "v3_profile": args.v3_profile if split_mode == "balanced-v3" else "",
         },
+        "box_distribution_by_split": summarize_label_dimensions(output_dir),
         "output_balance": summarize_output_balance(manifest),
         "validation": validation,
     }
@@ -1317,6 +1467,8 @@ def main() -> None:
     (output_dir / "manifest.json").write_text(json.dumps(manifest_to_json(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
     if split_mode == "balanced-v2":
         write_balanced_v2_report(output_dir, source_stats, build_stats, validation)
+    elif split_mode == "balanced-v3":
+        write_balanced_v3_report(output_dir, source_stats, build_stats, validation)
     else:
         write_grouped_report(output_dir, source_stats, build_stats, validation)
 

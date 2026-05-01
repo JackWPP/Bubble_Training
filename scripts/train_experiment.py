@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+import shutil
 
 import yaml
 
@@ -51,6 +52,13 @@ TRAIN_KEYS = {
     "fliplr",
     "flipud",
     "freeze",
+}
+
+METRIC_KEYS = {
+    "precision": "metrics/precision(B)",
+    "recall": "metrics/recall(B)",
+    "map50": "metrics/mAP50(B)",
+    "map5095": "metrics/mAP50-95(B)",
 }
 
 
@@ -98,6 +106,13 @@ def jsonable(value: Any) -> Any:
 
 def metric_dict(metrics: Any) -> dict[str, Any]:
     return jsonable(getattr(metrics, "results_dict", {}) or {})
+
+
+def metric_value(metrics: dict[str, Any], key: str) -> float:
+    try:
+        return float(metrics.get(METRIC_KEYS[key], 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def model_info_dict(model: Any) -> dict[str, Any]:
@@ -166,21 +181,23 @@ def val_model(
     device: Any,
     project: Path,
     name: str,
+    conf: float | None = None,
 ) -> dict[str, Any]:
     from ultralytics import YOLO
 
     model = YOLO(model_ref)
-    return metric_dict(
-        model.val(
-            data=data,
-            imgsz=imgsz,
-            device=device,
-            split=split,
-            project=str(project),
-            name=name,
-            exist_ok=True,
-        )
-    )
+    val_args = {
+        "data": data,
+        "imgsz": imgsz,
+        "device": device,
+        "split": split,
+        "project": str(project),
+        "name": name,
+        "exist_ok": True,
+    }
+    if conf is not None:
+        val_args["conf"] = conf
+    return metric_dict(model.val(**val_args))
 
 
 def eval_weight_bundle(
@@ -193,20 +210,122 @@ def eval_weight_bundle(
     run_name: str,
     label: str,
 ) -> dict[str, Any]:
-    """Evaluate one checkpoint on selection val and official grouped val/test."""
+    """Evaluate one checkpoint on selection val/main test and OOD grouped val/test."""
     bundle = {
         "weight": weight_ref,
         "selection_val_metrics": val_model(
             weight_ref, data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_selection_val"
         ),
-        "official_val_metrics": val_model(
-            weight_ref, official_data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_official_val"
+        "main_test_metrics": val_model(
+            weight_ref, data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_main_test"
         ),
-        "official_test_metrics": val_model(
-            weight_ref, official_data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_official_test"
+        "ood_val_metrics": val_model(
+            weight_ref, official_data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_ood_val"
+        ),
+        "ood_test_metrics": val_model(
+            weight_ref, official_data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_ood_test"
         ),
     }
+    bundle["official_val_metrics"] = bundle["ood_val_metrics"]
+    bundle["official_test_metrics"] = bundle["ood_test_metrics"]
     return bundle
+
+
+def checkpoint_candidates(run_dir: Path, model_path: str) -> dict[str, str]:
+    weights_dir = run_dir / "weights"
+    candidates: dict[str, str] = {}
+    best_pt = weights_dir / "best.pt"
+    last_pt = weights_dir / "last.pt"
+    if best_pt.exists():
+        candidates["best"] = str(best_pt)
+    if last_pt.exists():
+        candidates["last"] = str(last_pt)
+    for path in sorted(weights_dir.glob("epoch*.pt")):
+        candidates[path.stem] = str(path)
+    if not candidates:
+        candidates["model"] = model_path
+    return candidates
+
+
+def select_map50_checkpoint(
+    checkpoint_metrics: dict[str, Any],
+    precision_min: float,
+    recall_min: float,
+) -> dict[str, Any]:
+    viable: list[tuple[tuple[float, float, float], str, dict[str, Any]]] = []
+    fallback: list[tuple[tuple[float, float, float], str, dict[str, Any]]] = []
+    for label, bundle in checkpoint_metrics.items():
+        metrics = bundle.get("selection_val_metrics", {}) or {}
+        precision = metric_value(metrics, "precision")
+        recall = metric_value(metrics, "recall")
+        map50 = metric_value(metrics, "map50")
+        map5095 = metric_value(metrics, "map5095")
+        score = (map50, min(precision, recall), map5095)
+        target = viable if precision >= precision_min and recall >= recall_min else fallback
+        target.append((score, label, bundle))
+
+    selected_from = "thresholded" if viable else "fallback"
+    pool = viable or fallback
+    if not pool:
+        return {}
+    score, label, bundle = max(pool, key=lambda item: item[0])
+    return {
+        "label": label,
+        "weight": bundle.get("weight", ""),
+        "selected_from": selected_from,
+        "precision_min": precision_min,
+        "recall_min": recall_min,
+        "score": {
+            "map50": score[0],
+            "min_precision_recall": score[1],
+            "map5095": score[2],
+        },
+        "selection_val_metrics": bundle.get("selection_val_metrics", {}),
+        "main_test_metrics": bundle.get("main_test_metrics", {}),
+        "ood_val_metrics": bundle.get("ood_val_metrics", bundle.get("official_val_metrics", {})),
+        "ood_test_metrics": bundle.get("ood_test_metrics", bundle.get("official_test_metrics", {})),
+    }
+
+
+def run_conf_sweep(
+    weight_ref: str,
+    data_path: str,
+    imgsz: int,
+    device: Any,
+    project: Path,
+    run_name: str,
+    conf_values: list[float],
+) -> dict[str, Any]:
+    if not weight_ref or not conf_values:
+        return {}
+    rows = []
+    for conf in conf_values:
+        metrics = val_model(
+            weight_ref,
+            data_path,
+            "test",
+            imgsz,
+            device,
+            project / "conf_sweep",
+            f"{run_name}_conf_{str(conf).replace('.', '_')}",
+            conf=conf,
+        )
+        precision = metric_value(metrics, "precision")
+        recall = metric_value(metrics, "recall")
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+        rows.append(
+            {
+                "conf": conf,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "map50": metric_value(metrics, "map50"),
+                "map5095": metric_value(metrics, "map5095"),
+                "metrics": metrics,
+            }
+        )
+    best = max(rows, key=lambda row: (row["f1"], min(row["precision"], row["recall"]), row["map50"]))
+    return {"rows": rows, "best": best}
 
 
 def main() -> int:
@@ -277,6 +396,11 @@ def main() -> int:
     selection_val_metrics: dict[str, Any] = {}
     official_val_metrics: dict[str, Any] = {}
     official_test_metrics: dict[str, Any] = {}
+    main_test_metrics: dict[str, Any] = {}
+    ood_val_metrics: dict[str, Any] = {}
+    ood_test_metrics: dict[str, Any] = {}
+    map50_selected: dict[str, Any] = {}
+    conf_sweep: dict[str, Any] = {}
     info: dict[str, Any] = {}
 
     if eval_only:
@@ -296,21 +420,23 @@ def main() -> int:
                 "pretrained",
             )
             selection_val_metrics = checkpoint_metrics["pretrained"]["selection_val_metrics"]
-            official_val_metrics = checkpoint_metrics["pretrained"]["official_val_metrics"]
-            official_test_metrics = checkpoint_metrics["pretrained"]["official_test_metrics"]
+            main_test_metrics = checkpoint_metrics["pretrained"]["main_test_metrics"]
+            ood_val_metrics = checkpoint_metrics["pretrained"]["ood_val_metrics"]
+            ood_test_metrics = checkpoint_metrics["pretrained"]["ood_test_metrics"]
+            official_val_metrics = ood_val_metrics
+            official_test_metrics = ood_test_metrics
+            map50_selected = select_map50_checkpoint(
+                checkpoint_metrics,
+                float(config.get("selector_precision_min", 0.75)),
+                float(config.get("selector_recall_min", 0.72)),
+            )
     else:
         model = YOLO(model_path)
         results = model.train(**train_args)
         run_dir = Path(getattr(results, "save_dir", run_dir))
         best_pt = run_dir / "weights" / "best.pt"
         last_pt = run_dir / "weights" / "last.pt"
-        eval_weights: dict[str, str] = {}
-        if best_pt.exists():
-            eval_weights["best"] = str(best_pt)
-        if last_pt.exists() and last_pt != best_pt:
-            eval_weights["last"] = str(last_pt)
-        if not eval_weights:
-            eval_weights["model"] = model_path
+        eval_weights = checkpoint_candidates(run_dir, model_path)
 
         if not args.skip_val:
             for label, weight_ref in eval_weights.items():
@@ -324,15 +450,41 @@ def main() -> int:
                     run_name,
                     label,
                 )
-            preferred = checkpoint_metrics.get("best") or next(iter(checkpoint_metrics.values()), {})
+            map50_selected = select_map50_checkpoint(
+                checkpoint_metrics,
+                float(config.get("selector_precision_min", 0.75)),
+                float(config.get("selector_recall_min", 0.72)),
+            )
+            selected_label = map50_selected.get("label", "")
+            selected_bundle = checkpoint_metrics.get(selected_label, {}) if selected_label else {}
+            preferred = selected_bundle or checkpoint_metrics.get("best") or next(iter(checkpoint_metrics.values()), {})
             selection_val_metrics = preferred.get("selection_val_metrics", {})
-            official_val_metrics = preferred.get("official_val_metrics", {})
-            official_test_metrics = preferred.get("official_test_metrics", {})
-            eval_model = YOLO(preferred.get("weight", next(iter(eval_weights.values()))))
+            main_test_metrics = preferred.get("main_test_metrics", {})
+            ood_val_metrics = preferred.get("ood_val_metrics", preferred.get("official_val_metrics", {}))
+            ood_test_metrics = preferred.get("ood_test_metrics", preferred.get("official_test_metrics", {}))
+            official_val_metrics = ood_val_metrics
+            official_test_metrics = ood_test_metrics
+            selected_weight = preferred.get("weight", next(iter(eval_weights.values())))
+            selected_path = run_dir / "weights" / "map50_selected.pt"
+            if selected_weight and Path(selected_weight).exists() and Path(selected_weight) != selected_path:
+                shutil.copy2(selected_weight, selected_path)
+                map50_selected["copied_weight"] = str(selected_path)
+            conf_values = [float(value) for value in config.get("conf_sweep", [])]
+            conf_sweep = run_conf_sweep(
+                selected_weight,
+                data_path,
+                int(config.get("imgsz", 640)),
+                train_args.get("device"),
+                Path(project),
+                run_name,
+                conf_values,
+            )
+            eval_model = YOLO(selected_weight)
             info = model_info_dict(eval_model)
 
         if config.get("predict", False) and not args.skip_predict and best_pt.exists():
-            eval_model = YOLO(str(best_pt))
+            predict_weight = map50_selected.get("copied_weight") or map50_selected.get("weight") or str(best_pt)
+            eval_model = YOLO(str(predict_weight))
             source = Path(official_eval_data_path).parent / "test" / "images"
             eval_model.predict(
                 source=str(source),
@@ -358,14 +510,20 @@ def main() -> int:
         "run_dir": str(run_dir),
         "best_pt": str(best_pt) if best_pt.exists() else "",
         "last_pt": str(last_pt) if last_pt.exists() else "",
+        "map50_selected_pt": map50_selected.get("copied_weight", map50_selected.get("weight", "")),
         "eval_only": eval_only,
         "use_nwd": use_nwd,
         "nwd_weight": nwd_weight if use_nwd else 0.0,
         "nwd_constant": nwd_constant if use_nwd else 0.0,
         "model_info": info,
         "selection_val_metrics": selection_val_metrics,
+        "main_test_metrics": main_test_metrics,
+        "ood_val_metrics": ood_val_metrics,
+        "ood_test_metrics": ood_test_metrics,
         "official_val_metrics": official_val_metrics,
         "official_test_metrics": official_test_metrics,
+        "map50_selected": map50_selected,
+        "conf_sweep": conf_sweep,
         "checkpoint_metrics": checkpoint_metrics,
         "val_metrics": official_val_metrics,
         "test_metrics": official_test_metrics,

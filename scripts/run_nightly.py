@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--experiments", nargs="+", help="Explicit experiment ids")
     parser.add_argument("--baseline-fix", action="store_true", help="Run B0,B1,B2 only")
     parser.add_argument("--compressed", action="store_true", help="Run E0,E1,E3,E5 only")
+    parser.add_argument("--balanced-v3", action="store_true", help="Run BV2S_CTL,BV3S_A,BV3S_B,BV3S_768")
     parser.add_argument("--resume-missing", action="store_true", help="Skip experiments that already have best.pt")
     parser.add_argument("--exist-ok", action="store_true")
     parser.add_argument("--keep-going", action="store_true")
@@ -50,12 +51,15 @@ def main() -> int:
         exp_ids = ["B0", "B1", "B2"]
     elif args.compressed:
         exp_ids = ["E0", "E1", "E3", "E5"]
+    elif args.balanced_v3:
+        exp_ids = ["BV2S_CTL", "BV3S_A", "BV3S_B", "BV3S_768"]
     else:
         exp_ids = ["B0", "B1", "E0", "E1", "E2", "E3", "E4", "E5"]
 
     for exp_id in exp_ids:
         name = matrix[exp_id]["name"]
-        run_name = name if args.preset == "full" else f"{name}_{args.preset}"
+        has_exp_config = bool(matrix[exp_id].get("train_config"))
+        run_name = name if args.preset == "full" or has_exp_config else f"{name}_{args.preset}"
         if args.preset in {"full_conservative", "full_conservative_freeze"}:
             run_name = name
         best_pt = Path(args.project) / run_name / "weights" / "best.pt"

@@ -20,6 +20,8 @@ yolo_dataset_integrated/
 yolo_dataset_grouped/
 yolo_dataset_debug/
 yolo_dataset_balanced_v2/
+yolo_dataset_balanced_v3/
+yolo_dataset_balanced_v3_b/
 ultralytics_src/
 
 # Training, inference, and analysis outputs
