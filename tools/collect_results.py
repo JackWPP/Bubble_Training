@@ -26,23 +26,48 @@ def read_summary(run_dir: Path) -> dict[str, Any]:
     return {}
 
 
-def read_best_row(results_csv: Path) -> dict[str, str]:
+def read_rows(results_csv: Path) -> list[dict[str, str]]:
     if not results_csv.exists():
-        return {}
+        return []
     with results_csv.open("r", encoding="utf-8") as f:
         rows = [{k.strip(): v.strip() for k, v in row.items()} for row in csv.DictReader(f)]
+    return rows
+
+
+def read_best_row(results_csv: Path) -> dict[str, str]:
+    rows = read_rows(results_csv)
     if not rows:
         return {}
     key = METRIC_KEYS["map5095"]
     return max(rows, key=lambda row: float(row.get(key, 0.0) or 0.0))
 
 
+def read_last_row(results_csv: Path) -> dict[str, str]:
+    rows = read_rows(results_csv)
+    return rows[-1] if rows else {}
+
+
+def metrics_from(summary: dict[str, Any], section: str) -> dict[str, Any]:
+    return summary.get(section, {}) or {}
+
+
+def metric(metrics: dict[str, Any], key: str) -> Any:
+    return metrics.get(METRIC_KEYS[key], "")
+
+
 def collect(project: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for run_dir in sorted(path for path in project.iterdir() if path.is_dir() and path.name.startswith("E")):
+    for run_dir in sorted(path for path in project.iterdir() if path.is_dir() and path.name[:1] in {"B", "E"}):
         summary = read_summary(run_dir)
         best = read_best_row(run_dir / "results.csv")
+        last = read_last_row(run_dir / "results.csv")
         model_info = summary.get("model_info", {})
+        selection = metrics_from(summary, "selection_val_metrics")
+        official_val = metrics_from(summary, "official_val_metrics")
+        official_test = metrics_from(summary, "official_test_metrics")
+        checkpoint_metrics = summary.get("checkpoint_metrics", {})
+        best_official_test = checkpoint_metrics.get("best", {}).get("official_test_metrics", {})
+        last_official_test = checkpoint_metrics.get("last", {}).get("official_test_metrics", {})
         row = {
             "exp_id": summary.get("exp_id", run_dir.name.split("_", 1)[0]),
             "name": summary.get("name", run_dir.name),
@@ -51,13 +76,25 @@ def collect(project: Path) -> list[dict[str, Any]]:
             "nwd_weight": summary.get("nwd_weight", 0.0),
             "params": model_info.get("params", ""),
             "flops": model_info.get("flops", ""),
-            "precision": best.get(METRIC_KEYS["precision"], ""),
-            "recall": best.get(METRIC_KEYS["recall"], ""),
-            "map50": best.get(METRIC_KEYS["map50"], ""),
-            "map5095": best.get(METRIC_KEYS["map5095"], ""),
+            "selection_precision": metric(selection, "precision") or best.get(METRIC_KEYS["precision"], ""),
+            "selection_recall": metric(selection, "recall") or best.get(METRIC_KEYS["recall"], ""),
+            "selection_map50": metric(selection, "map50") or best.get(METRIC_KEYS["map50"], ""),
+            "selection_map5095": metric(selection, "map5095") or best.get(METRIC_KEYS["map5095"], ""),
+            "official_val_map50": metric(official_val, "map50"),
+            "official_val_map5095": metric(official_val, "map5095"),
+            "official_test_map50": metric(official_test, "map50"),
+            "official_test_map5095": metric(official_test, "map5095"),
+            "best_official_test_map5095": metric(best_official_test, "map5095"),
+            "last_official_test_map5095": metric(last_official_test, "map5095"),
+            "precision": metric(selection, "precision") or best.get(METRIC_KEYS["precision"], ""),
+            "recall": metric(selection, "recall") or best.get(METRIC_KEYS["recall"], ""),
+            "map50": metric(selection, "map50") or best.get(METRIC_KEYS["map50"], ""),
+            "map5095": metric(selection, "map5095") or best.get(METRIC_KEYS["map5095"], ""),
             "best_epoch": best.get("epoch", ""),
+            "last_epoch": last.get("epoch", ""),
             "run_dir": str(run_dir),
             "best_pt": summary.get("best_pt", str(run_dir / "weights" / "best.pt")),
+            "last_pt": summary.get("last_pt", str(run_dir / "weights" / "last.pt")),
         }
         rows.append(row)
     return rows
@@ -87,9 +124,21 @@ def main() -> int:
         "recall",
         "map50",
         "map5095",
+        "selection_precision",
+        "selection_recall",
+        "selection_map50",
+        "selection_map5095",
+        "official_val_map50",
+        "official_val_map5095",
+        "official_test_map50",
+        "official_test_map5095",
+        "best_official_test_map5095",
+        "last_official_test_map5095",
         "best_epoch",
+        "last_epoch",
         "run_dir",
         "best_pt",
+        "last_pt",
     ]
     with out_csv.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

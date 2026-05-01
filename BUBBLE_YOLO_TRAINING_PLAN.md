@@ -28,6 +28,8 @@
 - `smoke.yaml`：本机 RTX 4060 或其他单卡冒烟，默认 2 epoch、batch 2。
 - `debug_overfit.yaml`：配合 `tools/make_debug_subset.py` 做小样本过拟合检查。
 - `full.yaml`：双 V100 正式训练，默认 200 epoch、batch 16、device `0,1`。
+- `full_conservative.yaml`：修正 baseline 后的默认正式配置，使用 train-domain dev-val 选择 checkpoint，并在训练后评估 official grouped val/test。
+- `full_conservative_freeze.yaml`：B2 备用配置，冻结前 10 层做低学习率微调。
 
 默认增强策略保持克制，因为 grouped 数据集训练集已有离线增强：
 
@@ -50,6 +52,8 @@ flipud: 0.0
 本机环境检查：
 
 ```powershell
+python .\tools\make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
+python .\tools\validate_train_dev_split.py
 python .\tools\validate_grouped_dataset.py
 python -m pytest .\tests\test_bubble_modules.py
 python .\tools\check_model_forward.py --model configs\models\bubble_yolo11s_ssb_glrb_p3.yaml
@@ -72,14 +76,22 @@ python .\scripts\train_experiment.py --exp E3 --preset smoke --device 0 --exist-
 双 V100 服务器整夜训练：
 
 ```bash
-python scripts/run_nightly.py --preset full --device 0,1 --resume-missing
+python tools/make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
+python tools/validate_train_dev_split.py
+python scripts/run_nightly.py --preset full_conservative --device 0,1 --baseline-fix --resume-missing
 ```
 
 只跑压缩矩阵：
 
 ```bash
-python scripts/run_nightly.py --preset full --device 0,1 --compressed --resume-missing
+python scripts/run_nightly.py --preset full_conservative --device 0,1 --compressed --resume-missing
 ```
+
+baseline 修复矩阵：
+
+- `B0_yolo11s_pretrained_eval`：只评估 `yolo11s.pt`，不训练。
+- `B1_yolo11s_conservative`：低学习率、弱增强 baseline。
+- `B2_yolo11s_conservative_freeze`：冻结前 10 层的备用 baseline。
 
 服务器无网时，提前放置权重并指定：
 
@@ -133,9 +145,19 @@ python tools/export_report.py --project runs/bubble
 进入正式 full 训练前必须满足：
 
 1. `tools/validate_grouped_dataset.py` 通过。
-2. `tests/test_bubble_modules.py` 通过。
-3. 所有计划训练的 `configs/models/*.yaml` 通过 `tools/check_model_forward.py`。
-4. E0 baseline smoke 不报错，loss 正常下降。
-5. 每个自定义模块至少通过一次 smoke 或 debug overfit。
+2. `tools/validate_train_dev_split.py` 通过。
+3. `tests/test_bubble_modules.py` 通过。
+4. 所有计划训练的 `configs/models/*.yaml` 通过 `tools/check_model_forward.py`。
+5. B0/B1/B2 修复矩阵跑完，并确认 official test 指标没有被 dev-val 选择过程污染。
+6. 每个自定义模块至少通过一次 smoke 或 debug overfit。
 
 最终报告必须同时解释 Precision、Recall、mAP@50、mAP@50-95、Params、FLOPs 的变化；若模块使某些指标下降但改善密集/弱边界场景，也必须如实记录。
+
+## Baseline 异常修复原则
+
+`yolo_dataset_grouped/val` 和 `test` 是论文级严格泛化评估集，不再用于 early stopping。训练过程中的 checkpoint 选择改用 `configs/data/bubble_train_dev.yaml` 的 dev-val；summary 和报告中必须分开记录：
+
+- `selection_val_metrics`：train-domain dev-val，仅用于选择 checkpoint。
+- `official_val_metrics`：grouped val，仅用于训练后泛化评估。
+- `official_test_metrics`：grouped test，作为最终 baseline 对比重点。
+- `checkpoint_metrics.best/last`：best.pt 和 last.pt 的分开评估结果。

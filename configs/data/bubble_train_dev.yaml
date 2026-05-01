@@ -1,0 +1,7 @@
+path: G:/Bubble_Train
+train: G:/Bubble_Train/configs/data/bubble_train_dev_train.txt
+val: G:/Bubble_Train/configs/data/bubble_train_dev_val.txt
+test: G:/Bubble_Train/yolo_dataset_grouped/test/images
+
+nc: 1
+names: ["bubble"]

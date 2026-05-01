@@ -19,7 +19,11 @@ def load_matrix(path: Path) -> dict:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--preset", choices=("smoke", "full", "debug_overfit"), default="full")
+    parser.add_argument(
+        "--preset",
+        choices=("smoke", "full", "full_conservative", "full_conservative_freeze", "debug_overfit"),
+        default="full_conservative",
+    )
     parser.add_argument("--device", default="0,1")
     parser.add_argument("--batch", type=int, help="Override training batch size")
     parser.add_argument("--workers", type=int, help="Override dataloader workers")
@@ -28,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project", default=str(ROOT / "runs" / "bubble"))
     parser.add_argument("--matrix", type=Path, default=ROOT / "configs" / "train" / "experiments.yaml")
     parser.add_argument("--experiments", nargs="+", help="Explicit experiment ids")
+    parser.add_argument("--baseline-fix", action="store_true", help="Run B0,B1,B2 only")
     parser.add_argument("--compressed", action="store_true", help="Run E0,E1,E3,E5 only")
     parser.add_argument("--resume-missing", action="store_true", help="Skip experiments that already have best.pt")
     parser.add_argument("--exist-ok", action="store_true")
@@ -39,15 +44,29 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     matrix = load_matrix(args.matrix if args.matrix.is_absolute() else ROOT / args.matrix)["experiments"]
-    exp_ids = args.experiments or (["E0", "E1", "E3", "E5"] if args.compressed else ["E0", "E1", "E2", "E3", "E4", "E5"])
+    if args.experiments:
+        exp_ids = args.experiments
+    elif args.baseline_fix:
+        exp_ids = ["B0", "B1", "B2"]
+    elif args.compressed:
+        exp_ids = ["E0", "E1", "E3", "E5"]
+    else:
+        exp_ids = ["B0", "B1", "E0", "E1", "E2", "E3", "E4", "E5"]
 
     for exp_id in exp_ids:
         name = matrix[exp_id]["name"]
         run_name = name if args.preset == "full" else f"{name}_{args.preset}"
+        if args.preset in {"full_conservative", "full_conservative_freeze"}:
+            run_name = name
         best_pt = Path(args.project) / run_name / "weights" / "best.pt"
-        if args.resume_missing and best_pt.exists():
-            print(f"[skip] {exp_id} already has {best_pt}")
-            continue
+        summary_json = Path(args.project) / run_name / "summary.json"
+        if args.resume_missing:
+            if best_pt.exists():
+                print(f"[skip] {exp_id} already has {best_pt}")
+                continue
+            if matrix[exp_id].get("eval_only") and summary_json.exists():
+                print(f"[skip] {exp_id} already has {summary_json}")
+                continue
 
         cmd = [
             sys.executable,

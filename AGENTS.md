@@ -29,6 +29,8 @@
 
 ```powershell
 python .\tools\validate_grouped_dataset.py
+python .\tools\make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
+python .\tools\validate_train_dev_split.py
 python -m pytest .\tests\test_bubble_modules.py
 python .\tools\check_model_forward.py --model configs\models\bubble_yolo11s_final.yaml
 python .\scripts\train_experiment.py --exp E0 --preset smoke --device 0 --exist-ok
@@ -37,8 +39,12 @@ python .\scripts\train_experiment.py --exp E0 --preset smoke --device 0 --exist-
 服务器整夜训练：
 
 ```bash
-python scripts/run_nightly.py --preset full --device 0,1 --resume-missing
+python tools/make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
+python tools/validate_train_dev_split.py
+python scripts/run_nightly.py --preset full_conservative --device 0,1 --baseline-fix --resume-missing
 ```
+
+`yolo_dataset_grouped/val` 和 `test` 是 official 泛化评估集，不用于 early stopping。训练选择 checkpoint 时使用 `configs/data/bubble_train_dev.yaml`。
 
 ## 完成标准
 

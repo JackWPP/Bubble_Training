@@ -41,23 +41,23 @@ def main() -> int:
         "",
         "## Experiment Summary",
         "",
-        "| Exp | Model | Modules | NWD | Params | FLOPs | P | R | mAP@50 | mAP@50-95 | Best Epoch |",
+        "| Exp | Model | Modules | NWD | Selection mAP@50-95 | Official Val mAP@50-95 | Official Test mAP@50-95 | Best Test | Last Test | Best Epoch | Last Epoch |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            "| {exp_id} | {model} | {modules} | {nwd_weight} | {params} | {flops} | {precision} | {recall} | {map50} | {map5095} | {best_epoch} |".format(
+            "| {exp_id} | {model} | {modules} | {nwd_weight} | {selection_map5095} | {official_val_map5095} | {official_test_map5095} | {best_official_test_map5095} | {last_official_test_map5095} | {best_epoch} | {last_epoch} |".format(
                 exp_id=row.get("exp_id", ""),
                 model=Path(str(row.get("model", ""))).name,
                 modules=row.get("modules", ""),
                 nwd_weight=fmt(row.get("nwd_weight", "")),
-                params=fmt(row.get("params", "")),
-                flops=fmt(row.get("flops", "")),
-                precision=fmt(row.get("precision", "")),
-                recall=fmt(row.get("recall", "")),
-                map50=fmt(row.get("map50", "")),
-                map5095=fmt(row.get("map5095", "")),
+                selection_map5095=fmt(row.get("selection_map5095", row.get("map5095", ""))),
+                official_val_map5095=fmt(row.get("official_val_map5095", "")),
+                official_test_map5095=fmt(row.get("official_test_map5095", "")),
+                best_official_test_map5095=fmt(row.get("best_official_test_map5095", "")),
+                last_official_test_map5095=fmt(row.get("last_official_test_map5095", "")),
                 best_epoch=row.get("best_epoch", ""),
+                last_epoch=row.get("last_epoch", ""),
             )
         )
 
@@ -68,6 +68,7 @@ def main() -> int:
             continue
         lines.append(f"- `{row.get('exp_id', run_dir.name)}`: `{run_dir}`")
         lines.append(f"  - weights: `{row.get('best_pt', '')}`")
+        lines.append(f"  - last weights: `{row.get('last_pt', '')}`")
         lines.append(f"  - curves: `{run_dir / 'results.png'}`")
         lines.append(f"  - summary: `{run_dir / 'summary.json'}`")
 
@@ -76,7 +77,9 @@ def main() -> int:
             "",
             "## Notes",
             "",
-            "- Grouped dataset results should be treated as the official generalization results.",
+            "- Selection metrics come from the train-domain dev-val split and are used for checkpoint selection only.",
+            "- Official grouped val/test results should be treated as the paper-level generalization results.",
+            "- Report best.pt and last.pt together when their official test metrics diverge.",
             "- Compare both mAP@50 and mAP@50-95; dense bubbles may trade precision and recall differently.",
             "- NWD is a training loss change only in this implementation; NMS and assignment remain Ultralytics defaults.",
         ]

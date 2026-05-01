@@ -50,6 +50,7 @@ TRAIN_KEYS = {
     "scale",
     "fliplr",
     "flipud",
+    "freeze",
 }
 
 
@@ -100,6 +101,11 @@ def metric_dict(metrics: Any) -> dict[str, Any]:
 
 
 def model_info_dict(model: Any) -> dict[str, Any]:
+    torch_model = getattr(model, "model", None)
+    if torch_model is not None:
+        params = sum(p.numel() for p in torch_model.parameters())
+        gradients = sum(p.numel() for p in torch_model.parameters() if p.requires_grad)
+        return {"params": params, "gradients": gradients, "flops": ""}
     try:
         info = model.info(verbose=False)
     except Exception as exc:
@@ -123,12 +129,17 @@ def load_experiment(exp_id: str, matrix_path: Path) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exp", default="E0", help="Experiment id from configs/train/experiments.yaml")
-    parser.add_argument("--preset", choices=("smoke", "full", "debug_overfit"), default="smoke")
+    parser.add_argument(
+        "--preset",
+        choices=("smoke", "full", "full_conservative", "full_conservative_freeze", "debug_overfit"),
+        default="smoke",
+    )
     parser.add_argument("--config", type=Path, help="Training preset YAML override")
     parser.add_argument("--matrix", type=Path, default=ROOT / "configs" / "train" / "experiments.yaml")
     parser.add_argument("--model", help="Override model yaml/weights")
     parser.add_argument("--name", help="Override Ultralytics run name")
     parser.add_argument("--data", help="Override dataset yaml")
+    parser.add_argument("--eval-data", help="Official grouped eval dataset yaml")
     parser.add_argument("--project", help="Override Ultralytics project directory")
     parser.add_argument("--weights", default=os.getenv("BUBBLE_PRETRAINED_WEIGHTS", "yolo11s.pt"))
     parser.add_argument("--device", default=os.getenv("BUBBLE_DEVICE"))
@@ -143,22 +154,76 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--skip-val", action="store_true")
     parser.add_argument("--skip-predict", action="store_true")
+    parser.add_argument("--eval-only", action="store_true", help="Evaluate model without training")
     return parser
+
+
+def val_model(
+    model_ref: str,
+    data: str,
+    split: str,
+    imgsz: int,
+    device: Any,
+    project: Path,
+    name: str,
+) -> dict[str, Any]:
+    from ultralytics import YOLO
+
+    model = YOLO(model_ref)
+    return metric_dict(
+        model.val(
+            data=data,
+            imgsz=imgsz,
+            device=device,
+            split=split,
+            project=str(project),
+            name=name,
+            exist_ok=True,
+        )
+    )
+
+
+def eval_weight_bundle(
+    weight_ref: str,
+    data_path: str,
+    official_data_path: str,
+    imgsz: int,
+    device: Any,
+    project: Path,
+    run_name: str,
+    label: str,
+) -> dict[str, Any]:
+    """Evaluate one checkpoint on selection val and official grouped val/test."""
+    bundle = {
+        "weight": weight_ref,
+        "selection_val_metrics": val_model(
+            weight_ref, data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_selection_val"
+        ),
+        "official_val_metrics": val_model(
+            weight_ref, official_data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_official_val"
+        ),
+        "official_test_metrics": val_model(
+            weight_ref, official_data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_official_test"
+        ),
+    }
+    return bundle
 
 
 def main() -> int:
     args = build_parser().parse_args()
     register_bubble_modules()
 
-    preset_path = args.config or ROOT / "configs" / "train" / f"{args.preset}.yaml"
-    config = load_yaml(preset_path)
     exp = load_experiment(args.exp, args.matrix if args.matrix.is_absolute() else ROOT / args.matrix)
+    preset_path = args.config or exp.get("train_config") or ROOT / "configs" / "train" / f"{args.preset}.yaml"
+    preset_path = preset_path if isinstance(preset_path, Path) else Path(preset_path)
+    config = load_yaml(preset_path if preset_path.is_absolute() else ROOT / preset_path)
 
     model_path = resolve_model_path(args.model or exp["model"])
     data_path = resolve_project_path(args.data or config["data"])
+    official_eval_data_path = resolve_project_path(args.eval_data or config.get("eval_data", data_path))
     project = resolve_project_path(args.project or config.get("project", "runs/bubble"))
     run_name = args.name or exp["name"]
-    if args.preset != "full" and not args.name:
+    if args.preset not in {"full", "full_conservative"} and not args.name:
         run_name = f"{run_name}_{args.preset}"
 
     overrides = {
@@ -187,7 +252,7 @@ def main() -> int:
 
     from ultralytics import YOLO
 
-    model = YOLO(model_path)
+    eval_only = bool(args.eval_only or exp.get("eval_only", False))
     if not args.no_pretrained and model_path.endswith((".yaml", ".yml")):
         train_args["pretrained"] = resolve_model_path(args.weights)
     elif not args.no_pretrained:
@@ -196,46 +261,75 @@ def main() -> int:
         train_args["pretrained"] = False
 
     print(f"[train] exp={args.exp} name={run_name} model={model_path}")
-    print(f"[train] data={data_path} project={project} device={train_args.get('device')}")
+    print(f"[train] data={data_path} official_eval_data={official_eval_data_path}")
+    print(f"[train] project={project} device={train_args.get('device')}")
     if use_nwd:
         print(f"[train] NWD enabled weight={nwd_weight} constant={nwd_constant}")
 
-    results = model.train(**train_args)
-    run_dir = Path(getattr(results, "save_dir", Path(project) / run_name))
+    run_dir = Path(project) / run_name
     best_pt = run_dir / "weights" / "best.pt"
     last_pt = run_dir / "weights" / "last.pt"
-    eval_weight = best_pt if best_pt.exists() else last_pt if last_pt.exists() else Path(model_path)
-
-    val_metrics: dict[str, Any] = {}
-    test_metrics: dict[str, Any] = {}
+    checkpoint_metrics: dict[str, Any] = {}
+    selection_val_metrics: dict[str, Any] = {}
+    official_val_metrics: dict[str, Any] = {}
+    official_test_metrics: dict[str, Any] = {}
     info: dict[str, Any] = {}
-    if not args.skip_val and eval_weight.exists():
-        eval_model = YOLO(str(eval_weight))
+
+    if eval_only:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        eval_weight_ref = model_path
+        eval_model = YOLO(eval_weight_ref)
         info = model_info_dict(eval_model)
-        val_metrics = metric_dict(
-            eval_model.val(
-                data=data_path,
-                imgsz=config.get("imgsz", 640),
-                device=train_args.get("device"),
-                split="val",
-                project=str(Path(project) / "validation"),
-                name=f"{run_name}_val",
-                exist_ok=True,
+        if not args.skip_val:
+            checkpoint_metrics["pretrained"] = eval_weight_bundle(
+                eval_weight_ref,
+                data_path,
+                official_eval_data_path,
+                int(config.get("imgsz", 640)),
+                train_args.get("device"),
+                Path(project),
+                run_name,
+                "pretrained",
             )
-        )
-        test_metrics = metric_dict(
-            eval_model.val(
-                data=data_path,
-                imgsz=config.get("imgsz", 640),
-                device=train_args.get("device"),
-                split="test",
-                project=str(Path(project) / "validation"),
-                name=f"{run_name}_test",
-                exist_ok=True,
-            )
-        )
-        if config.get("predict", False) and not args.skip_predict:
-            source = Path(data_path).parent / "test" / "images"
+            selection_val_metrics = checkpoint_metrics["pretrained"]["selection_val_metrics"]
+            official_val_metrics = checkpoint_metrics["pretrained"]["official_val_metrics"]
+            official_test_metrics = checkpoint_metrics["pretrained"]["official_test_metrics"]
+    else:
+        model = YOLO(model_path)
+        results = model.train(**train_args)
+        run_dir = Path(getattr(results, "save_dir", run_dir))
+        best_pt = run_dir / "weights" / "best.pt"
+        last_pt = run_dir / "weights" / "last.pt"
+        eval_weights: dict[str, str] = {}
+        if best_pt.exists():
+            eval_weights["best"] = str(best_pt)
+        if last_pt.exists() and last_pt != best_pt:
+            eval_weights["last"] = str(last_pt)
+        if not eval_weights:
+            eval_weights["model"] = model_path
+
+        if not args.skip_val:
+            for label, weight_ref in eval_weights.items():
+                checkpoint_metrics[label] = eval_weight_bundle(
+                    weight_ref,
+                    data_path,
+                    official_eval_data_path,
+                    int(config.get("imgsz", 640)),
+                    train_args.get("device"),
+                    Path(project),
+                    run_name,
+                    label,
+                )
+            preferred = checkpoint_metrics.get("best") or next(iter(checkpoint_metrics.values()), {})
+            selection_val_metrics = preferred.get("selection_val_metrics", {})
+            official_val_metrics = preferred.get("official_val_metrics", {})
+            official_test_metrics = preferred.get("official_test_metrics", {})
+            eval_model = YOLO(preferred.get("weight", next(iter(eval_weights.values()))))
+            info = model_info_dict(eval_model)
+
+        if config.get("predict", False) and not args.skip_predict and best_pt.exists():
+            eval_model = YOLO(str(best_pt))
+            source = Path(official_eval_data_path).parent / "test" / "images"
             eval_model.predict(
                 source=str(source),
                 conf=float(config.get("predict_conf", 0.25)),
@@ -255,16 +349,22 @@ def main() -> int:
         "model": model_path,
         "pretrained_weight": resolve_model_path(args.weights),
         "data_config": data_path,
+        "official_eval_data_config": official_eval_data_path,
         "preset": args.preset,
         "run_dir": str(run_dir),
         "best_pt": str(best_pt) if best_pt.exists() else "",
         "last_pt": str(last_pt) if last_pt.exists() else "",
+        "eval_only": eval_only,
         "use_nwd": use_nwd,
         "nwd_weight": nwd_weight if use_nwd else 0.0,
         "nwd_constant": nwd_constant if use_nwd else 0.0,
         "model_info": info,
-        "val_metrics": val_metrics,
-        "test_metrics": test_metrics,
+        "selection_val_metrics": selection_val_metrics,
+        "official_val_metrics": official_val_metrics,
+        "official_test_metrics": official_test_metrics,
+        "checkpoint_metrics": checkpoint_metrics,
+        "val_metrics": official_val_metrics,
+        "test_metrics": official_test_metrics,
         "train_args": jsonable(train_args),
     }
 

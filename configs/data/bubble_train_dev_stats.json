@@ -1,0 +1,104 @@
+{
+  "dataset": "G:\\Bubble_Train\\yolo_dataset_grouped",
+  "seed": 42,
+  "ratio": 0.15,
+  "dev_source_keys": [
+    "20+40::16::143_raw.jpg",
+    "20+40::17::144_raw.jpg",
+    "20+40::1::1000_raw.jpg",
+    "20+40::25::1_raw.jpg",
+    "20+40::33::227_raw.jpg",
+    "20+40::37::255_raw.jpg",
+    "20+40::39::265_raw.jpg",
+    "20+40::52::375_raw.jpg",
+    "20+40::54::387_raw.jpg",
+    "20+40::55::414_raw.jpg",
+    "20+40::58::43_raw.jpg",
+    "20+40::62::480_raw.jpg",
+    "20+40::64::495_raw.jpg",
+    "20+40::66::53_raw.jpg",
+    "20+40::6::1087_raw.jpg",
+    "60+80::10::30_raw.jpg",
+    "60+80::23::481_raw.jpg",
+    "60+80::25::492_raw.jpg",
+    "60+80::27::505_raw.jpg",
+    "60+80::28::50_raw (2).jpg",
+    "60+80::2::0_raw.jpg",
+    "60+80::34::589_raw.jpg",
+    "60+80::36::60_raw (2).jpg",
+    "60+80::40::70_raw.jpg",
+    "60+80::42::80_raw (2).jpg",
+    "bubble_fc::1::-40-0.16A-1(480P).mp4_20260315_134508.362.jpg",
+    "job_13_dataset_2026_04_30_19_34_23_coco 1.0::12::0.08-2_002.png",
+    "job_13_dataset_2026_04_30_19_34_23_coco 1.0::18::0.08-2_014.png",
+    "job_13_dataset_2026_04_30_19_34_23_coco 1.0::20::0.08-2_019.png"
+  ],
+  "train_after_split": {
+    "images": 2250,
+    "boxes": 43848,
+    "avg_boxes_per_image": 19.488,
+    "sources": {
+      "20+40": 765,
+      "60+80": 555,
+      "bubble_fc": 90,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0": 840
+    },
+    "groups": {
+      "20+40|capture_series": 765,
+      "60+80|capture_series": 555,
+      "bubble_fc|-40-0.16A-1(480P).mp4": 30,
+      "bubble_fc|-40-0.2A-1.mp4": 60,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0|0.08-2": 840
+    }
+  },
+  "selection_dev_val": {
+    "images": 50,
+    "boxes": 813,
+    "avg_boxes_per_image": 16.26,
+    "sources": {
+      "20+40": 15,
+      "60+80": 10,
+      "bubble_fc": 1,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0": 24
+    },
+    "groups": {
+      "20+40|capture_series": 15,
+      "60+80|capture_series": 10,
+      "bubble_fc|-40-0.16A-1(480P).mp4": 1,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0|0.08-2": 24
+    }
+  },
+  "official_grouped_val": {
+    "images": 80,
+    "boxes": 4195,
+    "avg_boxes_per_image": 52.438,
+    "sources": {
+      "bubble_fc": 8,
+      "bubble_pad": 24,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0": 48
+    },
+    "groups": {
+      "bubble_fc|-40-0.2A-1(480p).mp4": 4,
+      "bubble_fc|-40-0.4A-1(480P).mp4": 4,
+      "bubble_pad|video_or_scene": 24,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0|0.12-1": 48
+    }
+  },
+  "official_grouped_test": {
+    "images": 208,
+    "boxes": 6108,
+    "avg_boxes_per_image": 29.365,
+    "sources": {
+      "big_fengchao": 48,
+      "bubble_1": 24,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0": 136
+    },
+    "groups": {
+      "big_fengchao|video_or_scene": 48,
+      "bubble_1|video_or_scene": 24,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0|0.04-1": 80,
+      "job_13_dataset_2026_04_30_19_34_23_coco 1.0|0.16-2": 56
+    }
+  },
+  "leakage_source_key_count": 0
+}

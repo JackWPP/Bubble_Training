@@ -1,4 +1,21 @@
 experiments:
+  B0:
+    name: B0_yolo11s_pretrained_eval
+    model: yolo11s.pt
+    modules: pretrained-eval-only
+    use_nwd: false
+    eval_only: true
+  B1:
+    name: B1_yolo11s_conservative
+    model: yolo11s.pt
+    modules: conservative-baseline
+    use_nwd: false
+  B2:
+    name: B2_yolo11s_conservative_freeze
+    model: yolo11s.pt
+    modules: conservative-baseline-freeze10
+    use_nwd: false
+    train_config: configs/train/full_conservative_freeze.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt

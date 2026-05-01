@@ -78,6 +78,8 @@ python .\07_build_integrated_dataset.py --split-mode source --output yolo_datase
 训练策略和实验矩阵见 `BUBBLE_YOLO_TRAINING_PLAN.md`。新实验统一使用 YOLO11s 与 grouped 数据集：
 
 ```powershell
+python .\tools\make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
+python .\tools\validate_train_dev_split.py
 python .\tools\validate_grouped_dataset.py
 python -m pytest .\tests\test_bubble_modules.py
 python .\tools\check_model_forward.py --model configs\models\bubble_yolo11s_final.yaml
@@ -93,13 +95,15 @@ python .\scripts\train_experiment.py --exp E3 --preset smoke --device 0 --exist-
 双 V100 服务器整夜训练：
 
 ```bash
-python scripts/run_nightly.py --preset full --device 0,1 --resume-missing
+python tools/make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
+python tools/validate_train_dev_split.py
+python scripts/run_nightly.py --preset full_conservative --device 0,1 --baseline-fix --resume-missing
 ```
 
 压缩矩阵：
 
 ```bash
-python scripts/run_nightly.py --preset full --device 0,1 --compressed --resume-missing
+python scripts/run_nightly.py --preset full_conservative --device 0,1 --compressed --resume-missing
 ```
 
 训练输出默认写入 `runs/bubble/`，训练结束后可手动汇总：
