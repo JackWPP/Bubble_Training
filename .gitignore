@@ -17,6 +17,7 @@ job_*_dataset/
 yolo_dataset/
 yolo_dataset_augmented/
 yolo_dataset_integrated/
+yolo_dataset_grouped/
 
 # Training, inference, and analysis outputs
 runs/

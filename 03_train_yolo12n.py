@@ -12,7 +12,7 @@ from ultralytics import YOLO
 ROOT = Path(__file__).resolve().parent
 
 PRETRAINED_WEIGHTS = os.getenv("BUBBLE_PRETRAINED_WEIGHTS", str(ROOT / "yolo26n.pt"))
-DATA_CONFIG = os.getenv("BUBBLE_DATA_CONFIG", str(ROOT / "yolo_dataset_integrated" / "bubble.yaml"))
+DATA_CONFIG = os.getenv("BUBBLE_DATA_CONFIG", str(ROOT / "yolo_dataset_grouped" / "bubble.yaml"))
 PROJECT_DIR = os.getenv("BUBBLE_PROJECT_DIR", str(ROOT / "runs"))
 DEVICE = os.getenv("BUBBLE_DEVICE", "0")
 EXPERIMENT_NAME = "yolo12n_finetune"

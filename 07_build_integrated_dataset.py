@@ -16,6 +16,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import random
@@ -35,9 +36,13 @@ TILE_STRIDE = 480
 TRAIN_RATIO = 0.80
 VAL_RATIO = 0.15
 TEST_RATIO = 0.05
+GROUP_TRAIN_RATIO = 0.75
+GROUP_VAL_RATIO = 0.10
+GROUP_TEST_RATIO = 0.15
 SEED = 42
 CLASS_ID = 0
 CLASS_NAME = "bubble"
+BASE_TRANSFORM_RE = re.compile(r"^(letterbox|tile_x\d+_y\d+)$")
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,7 @@ class SourceImage:
     source: str
     image_id: str
     source_key: str
+    group_key: str
     file_name: str
     path: Path
     width: int
@@ -87,6 +93,7 @@ class OutputSample:
     label_name: str
     source: str
     source_key: str
+    group_key: str
     transform: str
     labels: list[tuple[int, float, float, float, float]]
     width: int = TILE_SIZE
@@ -101,8 +108,8 @@ def slugify(value: str) -> str:
 def ensure_clean_output(output_dir: Path) -> None:
     output_dir = output_dir.resolve()
     cwd = Path.cwd().resolve()
-    allowed = cwd / "yolo_dataset_integrated"
-    if output_dir != allowed:
+    is_allowed_dataset_dir = output_dir.parent == cwd and output_dir.name.startswith("yolo_dataset_")
+    if not is_allowed_dataset_dir:
         raise ValueError(f"Refusing to clean unexpected output path: {output_dir}")
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -114,6 +121,22 @@ def ensure_clean_output(output_dir: Path) -> None:
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def derive_group_key(source_name: str, file_name: str) -> str:
+    """Return the coarser physical source group used for leakage-safe splits."""
+    stem = Path(file_name).stem
+    if source_name.startswith("job_13"):
+        match = re.match(r"(.+)_\d+$", stem)
+        return f"{source_name}|{match.group(1) if match else stem}"
+    if source_name == "bubble_fc":
+        video_name = re.sub(r"_202\d.*$", "", stem, flags=re.IGNORECASE)
+        return f"{source_name}|{video_name}"
+    if source_name in {"big_fengchao", "bubble_pad", "bubble_1"}:
+        return f"{source_name}|video_or_scene"
+    if source_name in {"20+40", "60+80"}:
+        return f"{source_name}|capture_series"
+    return f"{source_name}|{stem}"
 
 
 def find_image_path(image_dir: Path, file_name: str) -> Path | None:
@@ -205,11 +228,13 @@ def load_coco_sources(dataset_root: Path) -> tuple[list[SourceImage], dict]:
             dataset_boxes += len(boxes)
             common_dims[(width, height)] += 1
             source_key = f"{source_name}::{image_id}::{Path(file_name).name}"
+            group_key = derive_group_key(source_name, Path(file_name).name)
             source_images.append(
                 SourceImage(
                     source=source_name,
                     image_id=str(image_id),
                     source_key=source_key,
+                    group_key=group_key,
                     file_name=Path(file_name).name,
                     path=image_path,
                     width=width,
@@ -254,6 +279,90 @@ def split_sources(items: list[SourceImage], seed: int) -> dict[str, list[SourceI
         "val": shuffled[n_train : n_train + n_val],
         "test": shuffled[n_train + n_val :],
     }
+
+
+def split_sources_by_group(items: list[SourceImage], seed: int) -> dict[str, list[SourceImage]]:
+    groups: dict[str, list[SourceImage]] = defaultdict(list)
+    for item in items:
+        groups[item.group_key].append(item)
+
+    group_items = sorted(groups.items())
+    if len(group_items) <= 15:
+        assignments = choose_balanced_group_assignment(group_items)
+    else:
+        assignments = choose_greedy_group_assignment(group_items, seed)
+
+    splits: dict[str, list[SourceImage]] = {"train": [], "val": [], "test": []}
+    for group_key, group_sources in group_items:
+        splits[assignments[group_key]].extend(group_sources)
+    return splits
+
+
+def choose_balanced_group_assignment(group_items: list[tuple[str, list[SourceImage]]]) -> dict[str, str]:
+    split_names = ("train", "val", "test")
+    total = sum(len(group_sources) for _, group_sources in group_items)
+    targets = {
+        "train": total * GROUP_TRAIN_RATIO,
+        "val": total * GROUP_VAL_RATIO,
+        "test": total * GROUP_TEST_RATIO,
+    }
+    best_assignment: tuple[str, ...] | None = None
+    best_score: tuple[float, int, tuple[str, ...]] | None = None
+
+    for assignment in itertools.product(split_names, repeat=len(group_items)):
+        counts = Counter()
+        for split, (_, group_sources) in zip(assignment, group_items):
+            counts[split] += len(group_sources)
+        if any(counts[split] == 0 for split in split_names):
+            continue
+        if counts["train"] < counts["val"] or counts["train"] < counts["test"]:
+            continue
+
+        ratio_error = sum(((counts[split] - targets[split]) / total) ** 2 for split in split_names)
+        outside_band_penalty = 0.0
+        val_ratio = counts["val"] / total
+        test_ratio = counts["test"] / total
+        if not 0.08 <= val_ratio <= 0.18:
+            outside_band_penalty += min(abs(val_ratio - 0.08), abs(val_ratio - 0.18))
+        if not 0.10 <= test_ratio <= 0.20:
+            outside_band_penalty += min(abs(test_ratio - 0.10), abs(test_ratio - 0.20))
+        group_count_imbalance = abs(assignment.count("val") - assignment.count("test"))
+        score = (ratio_error + outside_band_penalty, group_count_imbalance, assignment)
+        if best_score is None or score < best_score:
+            best_score = score
+            best_assignment = assignment
+
+    if best_assignment is None:
+        raise ValueError("Unable to create non-empty group-aware train/val/test split")
+
+    return {
+        group_key: split
+        for split, (group_key, _) in zip(best_assignment, group_items)
+    }
+
+
+def choose_greedy_group_assignment(group_items: list[tuple[str, list[SourceImage]]], seed: int) -> dict[str, str]:
+    rng = random.Random(seed)
+    shuffled = list(group_items)
+    rng.shuffle(shuffled)
+    shuffled.sort(key=lambda item: len(item[1]), reverse=True)
+
+    total = sum(len(group_sources) for _, group_sources in group_items)
+    targets = {
+        "train": total * GROUP_TRAIN_RATIO,
+        "val": total * GROUP_VAL_RATIO,
+        "test": total * GROUP_TEST_RATIO,
+    }
+    counts = Counter()
+    assignments: dict[str, str] = {}
+    for group_key, group_sources in shuffled:
+        split = min(
+            ("train", "val", "test"),
+            key=lambda name: ((counts[name] + len(group_sources) - targets[name]) / total) ** 2,
+        )
+        assignments[group_key] = split
+        counts[split] += len(group_sources)
+    return assignments
 
 
 def window_starts(length: int, tile_size: int = TILE_SIZE, stride: int = TILE_STRIDE) -> list[int]:
@@ -526,7 +635,7 @@ def generate_base_samples(
                         tile, labels = process_tile(image, item.boxes, x, y)
                         labels = clamp_labels(labels)
                         name = unique_name(f"{base_stem}_tile_x{x}_y{y}.jpg", used_names)
-                        sample = OutputSample(split, name, f"{Path(name).stem}.txt", item.source, item.source_key, f"tile_x{x}_y{y}", labels)
+                        sample = OutputSample(split, name, f"{Path(name).stem}.txt", item.source, item.source_key, item.group_key, f"tile_x{x}_y{y}", labels)
                         if labels:
                             positive_outputs.append((tile, labels, sample))
                         else:
@@ -537,7 +646,7 @@ def generate_base_samples(
                 labels = clamp_labels(labels)
                 generation_stats["dropped_boxes_after_transform"] += max(0, len(item.boxes) - len(labels))
                 name = unique_name(f"{base_stem}_letterbox.jpg", used_names)
-                sample = OutputSample(split, name, f"{Path(name).stem}.txt", item.source, item.source_key, "letterbox", labels)
+                sample = OutputSample(split, name, f"{Path(name).stem}.txt", item.source, item.source_key, item.group_key, "letterbox", labels)
                 if labels:
                     positive_outputs.append((canvas, labels, sample))
                 else:
@@ -592,7 +701,7 @@ def augment_train(
             name = unique_name(f"{stem}_{suffix}.jpg", used_names)
             write_image_and_label(output_dir, "train", name, aug_image, aug_labels)
             augmented_manifest.append(
-                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, suffix, aug_labels)
+                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, base_sample.group_key, suffix, aug_labels)
             )
 
         photometric = [
@@ -608,7 +717,7 @@ def augment_train(
             name = unique_name(f"{stem}_{suffix}.jpg", used_names)
             write_image_and_label(output_dir, "train", name, aug_image, labels)
             augmented_manifest.append(
-                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, suffix, labels)
+                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, base_sample.group_key, suffix, labels)
             )
 
         for index in range(2):
@@ -617,18 +726,20 @@ def augment_train(
             name = unique_name(f"{stem}_cpaste{index}.jpg", used_names)
             write_image_and_label(output_dir, "train", name, aug_image, aug_labels)
             augmented_manifest.append(
-                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, f"copy_paste_{index}", aug_labels)
+                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, base_sample.group_key, f"copy_paste_{index}", aug_labels)
             )
 
     return augmented_manifest
 
 
-def validate_dataset(output_dir: Path, manifest: list[OutputSample]) -> dict:
+def validate_dataset(output_dir: Path, manifest: list[OutputSample], enforce_group_isolation: bool = True) -> dict:
     errors: list[str] = []
     split_by_source: dict[str, set[str]] = defaultdict(set)
+    split_by_group: dict[str, set[str]] = defaultdict(set)
     label_counts = Counter()
     box_widths: list[float] = []
     box_heights: list[float] = []
+    augmented_val_test: list[str] = []
 
     for sample in manifest:
         image_path = output_dir / sample.split / "images" / sample.image_name
@@ -639,6 +750,9 @@ def validate_dataset(output_dir: Path, manifest: list[OutputSample]) -> dict:
             errors.append(f"Missing label: {label_path}")
             continue
         split_by_source[sample.source_key].add(sample.split)
+        split_by_group[sample.group_key].add(sample.split)
+        if sample.split in {"val", "test"} and not BASE_TRANSFORM_RE.match(sample.transform):
+            augmented_val_test.append(f"{sample.split}/{sample.image_name}:{sample.transform}")
         lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         label_counts[sample.split] += len(lines)
         for line_no, line in enumerate(lines, start=1):
@@ -665,6 +779,11 @@ def validate_dataset(output_dir: Path, manifest: list[OutputSample]) -> dict:
     leakage = {source: sorted(splits) for source, splits in split_by_source.items() if len(splits) > 1}
     if leakage:
         errors.append(f"Source images crossed splits: {len(leakage)}")
+    group_leakage = {group: sorted(splits) for group, splits in split_by_group.items() if len(splits) > 1}
+    if enforce_group_isolation and group_leakage:
+        errors.append(f"Source groups crossed splits: {len(group_leakage)}")
+    if augmented_val_test:
+        errors.append(f"Validation/test contain augmented samples: {len(augmented_val_test)}")
 
     images_by_split = {
         split: len(list((output_dir / split / "images").glob("*.jpg")))
@@ -688,6 +807,11 @@ def validate_dataset(output_dir: Path, manifest: list[OutputSample]) -> dict:
         "box_width_px": summarize_numbers(box_widths),
         "box_height_px": summarize_numbers(box_heights),
         "source_split_leakage_count": len(leakage),
+        "source_split_leakage_examples": dict(list(leakage.items())[:10]),
+        "group_split_leakage_count": len(group_leakage),
+        "group_split_leakage_examples": dict(list(group_leakage.items())[:10]),
+        "augmented_val_test_count": len(augmented_val_test),
+        "augmented_val_test_examples": augmented_val_test[:10],
     }
 
 
@@ -713,6 +837,7 @@ def manifest_to_json(manifest: list[OutputSample]) -> list[dict]:
             "label": item.label_name,
             "source": item.source,
             "source_key": item.source_key,
+            "group_key": item.group_key,
             "transform": item.transform,
             "boxes": len(item.labels),
             "width": item.width,
@@ -865,6 +990,118 @@ def build_distribution_balance_section(build_stats: dict, validation: dict) -> s
 """
 
 
+def write_grouped_report(output_dir: Path, source_stats: dict, build_stats: dict, validation: dict) -> None:
+    dataset_rows = []
+    for item in source_stats["datasets"]:
+        common_dims = ", ".join(
+            f"{dim['width']}x{dim['height']}({dim['count']})"
+            for dim in item["common_dimensions"][:3]
+        )
+        dataset_rows.append(
+            f"| {item['name']} | {item['loaded_images']} | {item['valid_boxes']} | "
+            f"{item['missing_images']} | {item['invalid_boxes']} | {common_dims} |"
+        )
+
+    image_counts = validation["images_by_split"]
+    label_counts = validation["labels_by_split"]
+    box_counts = validation["boxes_by_split"]
+    density = build_stats["output_balance"]["split_density"]
+    split_rows = []
+    for split in ["train", "val", "test"]:
+        item = density.get(split, {})
+        split_rows.append(
+            f"| {split} | {image_counts.get(split, 0)} | {label_counts.get(split, 0)} | "
+            f"{box_counts.get(split, 0)} | {item.get('base_images', 0)} | "
+            f"{item.get('augmented_images', 0)} | {item.get('boxes_per_image', 0):.2f} |"
+        )
+
+    source_rows = []
+    for source, item in sorted(build_stats["output_balance"]["source_summary"].items()):
+        source_rows.append(
+            f"| {source} | {item.get('train_images', 0)} | {item.get('val_images', 0)} | "
+            f"{item.get('test_images', 0)} | {item.get('total_images', 0)} | "
+            f"{item.get('total_boxes', 0)} |"
+        )
+
+    group_rows = []
+    for group_key, item in sorted(build_stats["output_balance"]["group_summary"].items()):
+        group_rows.append(
+            f"| {group_key} | {item.get('train_images', 0)} | {item.get('val_images', 0)} | "
+            f"{item.get('test_images', 0)} | {item.get('total_images', 0)} | "
+            f"{item.get('total_boxes', 0)} |"
+        )
+
+    split_mode = build_stats.get("split_mode", "source")
+    ratio = build_stats.get("split_ratio", {})
+    report = f"""# 气泡检测 YOLO 数据集构建报告
+
+## 构建概览
+
+本数据集由 `Dataset` 目录中的 COCO 导出合并生成，所有标注统一映射为单类 `bubble`，YOLO 类别编号为 `0`。
+
+- 输出目录：`{output_dir.as_posix()}`
+- 训练配置：`{(output_dir / "bubble.yaml").as_posix()}`
+- split 模式：`{split_mode}`
+- 随机种子：`{build_stats.get("seed")}`
+- 目标比例：train/val/test = {ratio.get("train")}/{ratio.get("val")}/{ratio.get("test")}
+
+`group` 模式会先按物理源头或采集条件生成 `group_key`，再做 train/val/test 划分。这样同一视频、同一实验条件或同一采集序列不会同时进入训练集和验证/测试集，可作为论文最终泛化测试集。
+
+## 原始来源统计
+
+| 来源 | 有效图像数 | 有效标注框数 | 缺失图像数 | 无效框数 | 主要分辨率 |
+| --- | ---: | ---: | ---: | ---: | --- |
+{chr(10).join(dataset_rows)}
+
+原始类别统计：`{source_stats['category_names']}`
+
+## 处理策略
+
+- 大图使用 `640x640` 滑动窗口切片，stride 为 `480`，边缘自动补最后一窗。
+- 小图保持比例缩放，并居中 padding 到 `640x640`。
+- 切片内 bbox 需要满足：中心点落入 tile；裁剪后宽高不少于 `4px`；保留面积不少于原框面积的 `40%`。
+- 离线增强只作用于 `train`，`val` 和 `test` 保持未增强。
+- `manifest.json` 同时记录 `source_key` 和 `group_key`，用于复查精确原图泄漏与场景级泄漏。
+
+## 输出统计
+
+| Split | 图像数 | 标签文件数 | 标注框数 | 基础样本数 | 增强样本数 | 平均框/图 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(split_rows)}
+
+bbox 宽度统计：`{validation['box_width_px']}`
+
+bbox 高度统计：`{validation['box_height_px']}`
+
+## 泄漏与质量检查
+
+- 精确原图 source_key 跨 split 数：`{validation['source_split_leakage_count']}`
+- 物理源头 group_key 跨 split 数：`{validation['group_split_leakage_count']}`
+- val/test 离线增强样本数：`{validation['augmented_val_test_count']}`
+- 校验结果：`{"PASS" if validation["ok"] else "FAIL"}`，错误数：`{validation["error_count"]}`
+
+## 来源覆盖
+
+| 来源 | train 图像数 | val 图像数 | test 图像数 | 总图像数 | 总标注框数 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(source_rows)}
+
+## Group 覆盖
+
+| group_key | train 图像数 | val 图像数 | test 图像数 | 总图像数 | 总标注框数 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(group_rows)}
+
+## 论文使用建议
+
+`yolo_dataset_integrated` 可作为历史随机原图划分与快速开发集；`yolo_dataset_grouped` 应作为正式泛化测试集。论文中建议表述为：本文按物理源头和采集条件隔离训练、验证与测试数据，避免相邻帧、同实验条件和同源切片导致的指标虚高。
+"""
+    local_report = output_dir / "DATASET_BUILD_REPORT.md"
+    top_level_report = Path("DATASET_GROUPED_BUILD_REPORT.md") if output_dir.name == "yolo_dataset_grouped" else Path("DATASET_BUILD_REPORT.md")
+    local_report.write_text(report, encoding="utf-8")
+    top_level_report.write_text(report, encoding="utf-8")
+
+
 def summarize_output_balance(manifest: list[OutputSample]) -> dict:
     source_names = sorted({item.source for item in manifest})
     source_summary = {}
@@ -879,18 +1116,35 @@ def summarize_output_balance(manifest: list[OutputSample]) -> dict:
             "image_percent": len(source_items) / len(manifest) * 100 if manifest else 0.0,
         }
 
+    group_names = sorted({item.group_key for item in manifest})
+    group_summary = {}
+    for group_key in group_names:
+        group_items = [item for item in manifest if item.group_key == group_key]
+        group_summary[group_key] = {
+            "source": group_items[0].source if group_items else "",
+            "train_images": sum(1 for item in group_items if item.split == "train"),
+            "val_images": sum(1 for item in group_items if item.split == "val"),
+            "test_images": sum(1 for item in group_items if item.split == "test"),
+            "total_images": len(group_items),
+            "total_boxes": sum(len(item.labels) for item in group_items),
+        }
+
     split_density = {}
     for split in ["train", "val", "test"]:
         split_items = [item for item in manifest if item.split == split]
         boxes = sum(len(item.labels) for item in split_items)
+        base_count = sum(1 for item in split_items if BASE_TRANSFORM_RE.match(item.transform))
         split_density[split] = {
             "images": len(split_items),
+            "base_images": base_count,
+            "augmented_images": len(split_items) - base_count,
             "boxes": boxes,
             "boxes_per_image": boxes / len(split_items) if split_items else 0.0,
         }
 
     return {
         "source_summary": source_summary,
+        "group_summary": group_summary,
         "split_density": split_density,
     }
 
@@ -898,7 +1152,13 @@ def summarize_output_balance(manifest: list[OutputSample]) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build integrated bubble YOLO dataset.")
     parser.add_argument("--input", type=Path, default=Path("Dataset"))
-    parser.add_argument("--output", type=Path, default=Path("yolo_dataset_integrated"))
+    parser.add_argument("--output", type=Path, default=Path("yolo_dataset_grouped"))
+    parser.add_argument(
+        "--split-mode",
+        choices=["group", "source"],
+        default="group",
+        help="group isolates coarse physical sources; source keeps the legacy per-image random split.",
+    )
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
 
@@ -910,27 +1170,38 @@ def main() -> None:
     ensure_clean_output(output_dir)
 
     sources, source_stats = load_coco_sources(input_dir)
-    splits = split_sources(sources, args.seed)
+    splits = split_sources_by_group(sources, args.seed) if args.split_mode == "group" else split_sources(sources, args.seed)
     base_manifest, train_base_images, generation_stats = generate_base_samples(splits, output_dir, args.seed)
     augmented_manifest = augment_train(train_base_images, output_dir, args.seed)
     manifest = base_manifest + augmented_manifest
 
     write_yaml(output_dir)
-    validation = validate_dataset(output_dir, manifest)
+    validation = validate_dataset(output_dir, manifest, enforce_group_isolation=args.split_mode == "group")
     draw_previews(output_dir, manifest, args.seed)
 
     split_source_counts = {
         split: Counter(item.source for item in items)
         for split, items in splits.items()
     }
+    split_group_counts = {
+        split: Counter(item.group_key for item in items)
+        for split, items in splits.items()
+    }
+    split_ratio = (
+        {"train": GROUP_TRAIN_RATIO, "val": GROUP_VAL_RATIO, "test": GROUP_TEST_RATIO}
+        if args.split_mode == "group"
+        else {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO}
+    )
     build_stats = {
         "seed": args.seed,
+        "split_mode": args.split_mode,
         "tile_size": TILE_SIZE,
         "tile_stride": TILE_STRIDE,
-        "split_ratio": {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO},
+        "split_ratio": split_ratio,
         "source_images_total": len(sources),
         "source_images_by_split": {split: len(items) for split, items in splits.items()},
         "source_counts_by_split": {split: dict(counter) for split, counter in split_source_counts.items()},
+        "group_counts_by_split": {split: dict(counter) for split, counter in split_group_counts.items()},
         "generation": generation_stats,
         "augmentation": {
             "train_base_samples": len(train_base_images),
@@ -941,7 +1212,7 @@ def main() -> None:
     }
     (output_dir / "build_stats.json").write_text(json.dumps(build_stats, ensure_ascii=False, indent=2), encoding="utf-8")
     (output_dir / "manifest.json").write_text(json.dumps(manifest_to_json(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
-    write_report(output_dir, source_stats, build_stats, validation)
+    write_grouped_report(output_dir, source_stats, build_stats, validation)
 
     print(json.dumps(build_stats, ensure_ascii=False, indent=2))
     if not validation["ok"]:
