@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local datasets and generated YOLO exports
+Dataset/
+dataset/
+job_*_dataset/
+yolo_dataset/
+yolo_dataset_augmented/
+yolo_dataset_integrated/
+
+# Training, inference, and analysis outputs
+runs/
+mlruns/
+wandb/
+temp/
+020/
+123123/
+outputs/
+predictions/
+
+# Model weights and dataset archives
+*.pt
+*.pth
+*.onnx
+*.engine
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+best*/
+
+# Generated media and large analysis artifacts
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tif
+*.tiff
+
+# Keep documentation images tracked only when explicitly forced
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
