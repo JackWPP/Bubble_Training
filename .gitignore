@@ -18,6 +18,8 @@ yolo_dataset/
 yolo_dataset_augmented/
 yolo_dataset_integrated/
 yolo_dataset_grouped/
+yolo_dataset_debug/
+ultralytics_src/
 
 # Training, inference, and analysis outputs
 runs/

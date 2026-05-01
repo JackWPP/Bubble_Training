@@ -7,6 +7,11 @@
 | 脚本 | 用途 |
 | --- | --- |
 | `07_build_integrated_dataset.py` | 从 COCO 数据构建 YOLO 训练数据集 |
+| `scripts/train_experiment.py` | Bubble-YOLO11s 单实验训练、验证、汇总 |
+| `scripts/run_nightly.py` | 按 E0-E5 顺序运行整夜消融训练 |
+| `tools/check_model_forward.py` | 检查自定义 YOLO11s YAML 能否 forward |
+| `tools/collect_results.py` | 汇总 Ultralytics 训练结果 |
+| `tools/export_report.py` | 导出 Markdown 训练报告 |
 | `03_train_yolo12n.py` | YOLO12n 微调训练 |
 | `04_train_yolo12s.py` | YOLO12s 微调训练 |
 | `05_predict.py` | 使用训练权重进行推理预测 |
@@ -68,7 +73,43 @@ python .\07_build_integrated_dataset.py --split-mode source --output yolo_datase
 - 仅对训练集做离线增强，验证集和测试集不增强。
 - 所有目标统一为单类 `bubble`（类别编号 `0`）。
 
-## 训练
+## Bubble-YOLO11s 训练
+
+训练策略和实验矩阵见 `BUBBLE_YOLO_TRAINING_PLAN.md`。新实验统一使用 YOLO11s 与 grouped 数据集：
+
+```powershell
+python .\tools\validate_grouped_dataset.py
+python -m pytest .\tests\test_bubble_modules.py
+python .\tools\check_model_forward.py --model configs\models\bubble_yolo11s_final.yaml
+```
+
+本机冒烟训练：
+
+```powershell
+python .\scripts\train_experiment.py --exp E0 --preset smoke --device 0 --exist-ok
+python .\scripts\train_experiment.py --exp E3 --preset smoke --device 0 --exist-ok
+```
+
+双 V100 服务器整夜训练：
+
+```bash
+python scripts/run_nightly.py --preset full --device 0,1 --resume-missing
+```
+
+压缩矩阵：
+
+```bash
+python scripts/run_nightly.py --preset full --device 0,1 --compressed --resume-missing
+```
+
+训练输出默认写入 `runs/bubble/`，训练结束后可手动汇总：
+
+```powershell
+python .\tools\collect_results.py --project runs\bubble
+python .\tools\export_report.py --project runs\bubble
+```
+
+## 历史 YOLO12 训练脚本
 
 训练脚本默认使用 `yolo_dataset_grouped/bubble.yaml`：
 
@@ -94,6 +135,13 @@ python .\03_train_yolo12n.py
 | `BUBBLE_DATA_CONFIG` | `yolo_dataset_grouped/bubble.yaml` | 数据集配置文件路径 |
 | `BUBBLE_PROJECT_DIR` | `runs/` | 训练输出目录 |
 | `BUBBLE_DEVICE` | `0` | GPU 设备编号 |
+
+新训练入口还支持：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `BUBBLE_PRETRAINED_WEIGHTS` | `yolo11s.pt` | YOLO11s 预训练权重路径；服务器无网时建议显式设置 |
+| `BUBBLE_DEVICE` | `configs/train/*.yaml` 中的值 | GPU 设备编号，双卡可用 `0,1` |
 
 ## 推理预测
 

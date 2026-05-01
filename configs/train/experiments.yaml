@@ -1,0 +1,33 @@
+experiments:
+  E0:
+    name: E0_yolo11s_baseline
+    model: yolo11s.pt
+    modules: baseline
+    use_nwd: false
+  E1:
+    name: E1_yolo11s_ssb_p3
+    model: configs/models/bubble_yolo11s_ssb_p3.yaml
+    modules: SSBRefine-P3
+    use_nwd: false
+  E2:
+    name: E2_yolo11s_glrb_p3
+    model: configs/models/bubble_yolo11s_glrb_p3.yaml
+    modules: GLRB-P3
+    use_nwd: false
+  E3:
+    name: E3_yolo11s_ssb_glrb_p3
+    model: configs/models/bubble_yolo11s_ssb_glrb_p3.yaml
+    modules: SSBRefine-P3+GLRB-P3
+    use_nwd: false
+  E4:
+    name: E4_yolo11s_ssb_glrb_all
+    model: configs/models/bubble_yolo11s_ssb_glrb_all.yaml
+    modules: SSBRefine-P3/P4/P5+GLRB-P3/P4/P5
+    use_nwd: false
+  E5:
+    name: E5_bubble_yolo11s_final_nwd
+    model: configs/models/bubble_yolo11s_final.yaml
+    modules: SSBRefine+GLRB+NWD
+    use_nwd: true
+    nwd_weight: 0.4
+    nwd_constant: 12.8
