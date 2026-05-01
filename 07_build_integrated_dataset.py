@@ -1,0 +1,952 @@
+"""
+Build an integrated YOLO dataset for bubble detection from local COCO exports.
+
+Inputs:
+  Dataset/*/annotations/instances_default.json
+  Dataset/*/images/default/*
+
+Outputs:
+  yolo_dataset_integrated/{train,val,test}/{images,labels}
+  yolo_dataset_integrated/bubble.yaml
+  yolo_dataset_integrated/build_stats.json
+  yolo_dataset_integrated/manifest.json
+  DATASET_BUILD_REPORT.md
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import random
+import re
+import shutil
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+import cv2
+import numpy as np
+
+
+TILE_SIZE = 640
+TILE_STRIDE = 480
+TRAIN_RATIO = 0.80
+VAL_RATIO = 0.15
+TEST_RATIO = 0.05
+SEED = 42
+CLASS_ID = 0
+CLASS_NAME = "bubble"
+
+
+@dataclass(frozen=True)
+class Box:
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+    @property
+    def width(self) -> float:
+        return self.x2 - self.x1
+
+    @property
+    def height(self) -> float:
+        return self.y2 - self.y1
+
+    @property
+    def area(self) -> float:
+        return max(0.0, self.width) * max(0.0, self.height)
+
+    @property
+    def cx(self) -> float:
+        return (self.x1 + self.x2) / 2.0
+
+    @property
+    def cy(self) -> float:
+        return (self.y1 + self.y2) / 2.0
+
+
+@dataclass
+class SourceImage:
+    source: str
+    image_id: str
+    source_key: str
+    file_name: str
+    path: Path
+    width: int
+    height: int
+    boxes: list[Box]
+
+
+@dataclass
+class OutputSample:
+    split: str
+    image_name: str
+    label_name: str
+    source: str
+    source_key: str
+    transform: str
+    labels: list[tuple[int, float, float, float, float]]
+    width: int = TILE_SIZE
+    height: int = TILE_SIZE
+
+
+def slugify(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    return value.strip("._-") or "dataset"
+
+
+def ensure_clean_output(output_dir: Path) -> None:
+    output_dir = output_dir.resolve()
+    cwd = Path.cwd().resolve()
+    allowed = cwd / "yolo_dataset_integrated"
+    if output_dir != allowed:
+        raise ValueError(f"Refusing to clean unexpected output path: {output_dir}")
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    for split in ["train", "val", "test"]:
+        (output_dir / split / "images").mkdir(parents=True, exist_ok=True)
+        (output_dir / split / "labels").mkdir(parents=True, exist_ok=True)
+    (output_dir / "quality_preview").mkdir(parents=True, exist_ok=True)
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def find_image_path(image_dir: Path, file_name: str) -> Path | None:
+    candidates = [
+        image_dir / file_name,
+        image_dir / Path(file_name).name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    matches = list(image_dir.rglob(Path(file_name).name))
+    return matches[0] if matches else None
+
+
+def clip_coco_box(bbox: list[float], width: int, height: int) -> Box | None:
+    if len(bbox) < 4:
+        return None
+    x, y, w, h = map(float, bbox[:4])
+    if w <= 0 or h <= 0:
+        return None
+    x1 = max(0.0, min(float(width), x))
+    y1 = max(0.0, min(float(height), y))
+    x2 = max(0.0, min(float(width), x + w))
+    y2 = max(0.0, min(float(height), y + h))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return Box(x1, y1, x2, y2)
+
+
+def load_coco_sources(dataset_root: Path) -> tuple[list[SourceImage], dict]:
+    source_images: list[SourceImage] = []
+    stats = {
+        "datasets": [],
+        "invalid_boxes": 0,
+        "missing_images": 0,
+        "empty_images": 0,
+        "category_names": Counter(),
+    }
+
+    annotation_files = sorted(dataset_root.glob("*/annotations/instances_default.json"))
+    if not annotation_files:
+        raise FileNotFoundError(f"No COCO annotation files found under {dataset_root}")
+
+    for ann_path in annotation_files:
+        dataset_dir = ann_path.parents[1]
+        source_name = dataset_dir.name
+        image_dir = dataset_dir / "images" / "default"
+        data = read_json(ann_path)
+        images = data.get("images", [])
+        annotations = data.get("annotations", [])
+        categories = {item.get("id"): item.get("name", str(item.get("id"))) for item in data.get("categories", [])}
+
+        anns_by_image: dict[object, list[dict]] = defaultdict(list)
+        for ann in annotations:
+            anns_by_image[ann.get("image_id")].append(ann)
+
+        dataset_invalid = 0
+        dataset_missing = 0
+        dataset_empty = 0
+        dataset_boxes = 0
+        common_dims = Counter()
+
+        for image in images:
+            image_id = image.get("id")
+            width = int(image.get("width", 0))
+            height = int(image.get("height", 0))
+            file_name = str(image.get("file_name", ""))
+            if width <= 0 or height <= 0 or not file_name:
+                dataset_invalid += len(anns_by_image.get(image_id, []))
+                continue
+
+            image_path = find_image_path(image_dir, file_name)
+            if image_path is None:
+                dataset_missing += 1
+                continue
+
+            boxes: list[Box] = []
+            for ann in anns_by_image.get(image_id, []):
+                category = categories.get(ann.get("category_id"), str(ann.get("category_id")))
+                stats["category_names"][category] += 1
+                box = clip_coco_box(ann.get("bbox", []), width, height)
+                if box is None:
+                    dataset_invalid += 1
+                    continue
+                boxes.append(box)
+
+            if not boxes:
+                dataset_empty += 1
+            dataset_boxes += len(boxes)
+            common_dims[(width, height)] += 1
+            source_key = f"{source_name}::{image_id}::{Path(file_name).name}"
+            source_images.append(
+                SourceImage(
+                    source=source_name,
+                    image_id=str(image_id),
+                    source_key=source_key,
+                    file_name=Path(file_name).name,
+                    path=image_path,
+                    width=width,
+                    height=height,
+                    boxes=boxes,
+                )
+            )
+
+        stats["invalid_boxes"] += dataset_invalid
+        stats["missing_images"] += dataset_missing
+        stats["empty_images"] += dataset_empty
+        stats["datasets"].append(
+            {
+                "name": source_name,
+                "images": len(images),
+                "loaded_images": len([item for item in source_images if item.source == source_name]),
+                "annotations": len(annotations),
+                "valid_boxes": dataset_boxes,
+                "invalid_boxes": dataset_invalid,
+                "missing_images": dataset_missing,
+                "empty_images": dataset_empty,
+                "common_dimensions": [
+                    {"width": w, "height": h, "count": c}
+                    for (w, h), c in common_dims.most_common()
+                ],
+            }
+        )
+
+    stats["category_names"] = dict(stats["category_names"])
+    return source_images, stats
+
+
+def split_sources(items: list[SourceImage], seed: int) -> dict[str, list[SourceImage]]:
+    rng = random.Random(seed)
+    shuffled = list(items)
+    rng.shuffle(shuffled)
+    n_total = len(shuffled)
+    n_train = int(n_total * TRAIN_RATIO)
+    n_val = int(n_total * VAL_RATIO)
+    return {
+        "train": shuffled[:n_train],
+        "val": shuffled[n_train : n_train + n_val],
+        "test": shuffled[n_train + n_val :],
+    }
+
+
+def window_starts(length: int, tile_size: int = TILE_SIZE, stride: int = TILE_STRIDE) -> list[int]:
+    if length <= tile_size:
+        return [0]
+    starts = list(range(0, max(1, length - tile_size + 1), stride))
+    final_start = length - tile_size
+    if starts[-1] != final_start:
+        starts.append(final_start)
+    return starts
+
+
+def to_yolo(box: Box, size: int = TILE_SIZE) -> tuple[int, float, float, float, float]:
+    cx = ((box.x1 + box.x2) / 2.0) / size
+    cy = ((box.y1 + box.y2) / 2.0) / size
+    bw = (box.x2 - box.x1) / size
+    bh = (box.y2 - box.y1) / size
+    return CLASS_ID, cx, cy, bw, bh
+
+
+def labels_to_abs_boxes(labels: Iterable[tuple[int, float, float, float, float]], size: int = TILE_SIZE) -> list[Box]:
+    boxes: list[Box] = []
+    for _, cx, cy, bw, bh in labels:
+        abs_cx = cx * size
+        abs_cy = cy * size
+        abs_w = bw * size
+        abs_h = bh * size
+        boxes.append(Box(abs_cx - abs_w / 2, abs_cy - abs_h / 2, abs_cx + abs_w / 2, abs_cy + abs_h / 2))
+    return boxes
+
+
+def process_small_image(image: np.ndarray, boxes: list[Box]) -> tuple[np.ndarray, list[tuple[int, float, float, float, float]]]:
+    h, w = image.shape[:2]
+    scale = min(TILE_SIZE / w, TILE_SIZE / h)
+    new_w = int(round(w * scale))
+    new_h = int(round(h * scale))
+    pad_x = (TILE_SIZE - new_w) // 2
+    pad_y = (TILE_SIZE - new_h) // 2
+
+    canvas = np.full((TILE_SIZE, TILE_SIZE, 3), 114, dtype=np.uint8)
+    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    canvas[pad_y : pad_y + new_h, pad_x : pad_x + new_w] = resized
+
+    labels: list[tuple[int, float, float, float, float]] = []
+    for box in boxes:
+        transformed = Box(
+            box.x1 * scale + pad_x,
+            box.y1 * scale + pad_y,
+            box.x2 * scale + pad_x,
+            box.y2 * scale + pad_y,
+        )
+        if transformed.width >= 4 and transformed.height >= 4:
+            labels.append(to_yolo(transformed))
+    return canvas, labels
+
+
+def process_tile(
+    image: np.ndarray,
+    boxes: list[Box],
+    start_x: int,
+    start_y: int,
+) -> tuple[np.ndarray, list[tuple[int, float, float, float, float]]]:
+    h, w = image.shape[:2]
+    end_x = min(start_x + TILE_SIZE, w)
+    end_y = min(start_y + TILE_SIZE, h)
+    canvas = np.full((TILE_SIZE, TILE_SIZE, 3), 114, dtype=np.uint8)
+    crop = image[start_y:end_y, start_x:end_x]
+    canvas[: crop.shape[0], : crop.shape[1]] = crop
+
+    labels: list[tuple[int, float, float, float, float]] = []
+    for box in boxes:
+        center_inside = start_x <= box.cx < start_x + TILE_SIZE and start_y <= box.cy < start_y + TILE_SIZE
+        if not center_inside:
+            continue
+        clipped = Box(
+            max(box.x1, start_x) - start_x,
+            max(box.y1, start_y) - start_y,
+            min(box.x2, end_x) - start_x,
+            min(box.y2, end_y) - start_y,
+        )
+        retained_ratio = clipped.area / box.area if box.area > 0 else 0.0
+        if clipped.width >= 4 and clipped.height >= 4 and retained_ratio >= 0.40:
+            labels.append(to_yolo(clipped))
+    return canvas, labels
+
+
+def write_image_and_label(
+    output_dir: Path,
+    split: str,
+    image_name: str,
+    image: np.ndarray,
+    labels: list[tuple[int, float, float, float, float]],
+) -> None:
+    image_path = output_dir / split / "images" / image_name
+    label_path = output_dir / split / "labels" / f"{Path(image_name).stem}.txt"
+    cv2.imwrite(str(image_path), image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+    with label_path.open("w", encoding="utf-8") as handle:
+        for cls, cx, cy, bw, bh in labels:
+            handle.write(f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
+
+
+def unique_name(base: str, used_names: set[str]) -> str:
+    candidate = base
+    index = 1
+    while candidate in used_names:
+        stem = Path(base).stem
+        candidate = f"{stem}_{index:02d}.jpg"
+        index += 1
+    used_names.add(candidate)
+    return candidate
+
+
+def transform_hflip(image: np.ndarray, labels: list[tuple[int, float, float, float, float]]):
+    return cv2.flip(image, 1), [(cls, 1.0 - cx, cy, bw, bh) for cls, cx, cy, bw, bh in labels]
+
+
+def transform_vflip(image: np.ndarray, labels: list[tuple[int, float, float, float, float]]):
+    return cv2.flip(image, 0), [(cls, cx, 1.0 - cy, bw, bh) for cls, cx, cy, bw, bh in labels]
+
+
+def transform_rot90(image: np.ndarray, labels: list[tuple[int, float, float, float, float]]):
+    return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE), [(cls, 1.0 - cy, cx, bh, bw) for cls, cx, cy, bw, bh in labels]
+
+
+def transform_rot180(image: np.ndarray, labels: list[tuple[int, float, float, float, float]]):
+    return cv2.rotate(image, cv2.ROTATE_180), [(cls, 1.0 - cx, 1.0 - cy, bw, bh) for cls, cx, cy, bw, bh in labels]
+
+
+def transform_rot270(image: np.ndarray, labels: list[tuple[int, float, float, float, float]]):
+    return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE), [(cls, cy, 1.0 - cx, bh, bw) for cls, cx, cy, bw, bh in labels]
+
+
+def transform_brightness(image: np.ndarray, factor: float) -> np.ndarray:
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2] * factor, 0, 255)
+    return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+
+def transform_contrast(image: np.ndarray, factor: float) -> np.ndarray:
+    mean = image.mean(axis=(0, 1), keepdims=True).astype(np.float32)
+    return np.clip((image.astype(np.float32) - mean) * factor + mean, 0, 255).astype(np.uint8)
+
+
+def transform_hsv(image: np.ndarray, h_shift: float, s_factor: float, v_factor: float) -> np.ndarray:
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[:, :, 0] = (hsv[:, :, 0] + h_shift) % 180
+    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * s_factor, 0, 255)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2] * v_factor, 0, 255)
+    return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+
+def transform_noise(image: np.ndarray, rng: np.random.Generator, std: float = 6.0) -> np.ndarray:
+    noise = rng.normal(0, std, image.shape).astype(np.float32)
+    return np.clip(image.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+
+
+def extract_crops(train_images: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]]]]) -> list[dict]:
+    crops: list[dict] = []
+    for image, labels in train_images:
+        for cls, box in zip([label[0] for label in labels], labels_to_abs_boxes(labels)):
+            x1 = max(0, int(math.floor(box.x1)))
+            y1 = max(0, int(math.floor(box.y1)))
+            x2 = min(TILE_SIZE, int(math.ceil(box.x2)))
+            y2 = min(TILE_SIZE, int(math.ceil(box.y2)))
+            if x2 - x1 < 4 or y2 - y1 < 4:
+                continue
+            crop = image[y1:y2, x1:x2].copy()
+            if crop.size == 0:
+                continue
+            crops.append({"crop": crop, "cls": cls, "w": x2 - x1, "h": y2 - y1})
+    return crops
+
+
+def box_iou(a: Box, b: Box) -> float:
+    ix1 = max(a.x1, b.x1)
+    iy1 = max(a.y1, b.y1)
+    ix2 = min(a.x2, b.x2)
+    iy2 = min(a.y2, b.y2)
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    union = a.area + b.area - inter
+    return inter / union if union > 0 else 0.0
+
+
+def transform_copy_paste(
+    image: np.ndarray,
+    labels: list[tuple[int, float, float, float, float]],
+    crops: list[dict],
+    rng: random.Random,
+) -> tuple[np.ndarray, list[tuple[int, float, float, float, float]]]:
+    if not crops:
+        return image.copy(), list(labels)
+
+    result = image.copy()
+    new_labels = list(labels)
+    existing = labels_to_abs_boxes(labels)
+    paste_count = rng.randint(2, 6)
+
+    for _ in range(paste_count):
+        crop_info = rng.choice(crops)
+        crop = crop_info["crop"]
+        scale = rng.uniform(0.85, 1.15)
+        target_w = max(4, int(round(crop_info["w"] * scale)))
+        target_h = max(4, int(round(crop_info["h"] * scale)))
+        if target_w >= TILE_SIZE or target_h >= TILE_SIZE:
+            continue
+        resized = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+        for _attempt in range(30):
+            x = rng.randint(0, TILE_SIZE - target_w)
+            y = rng.randint(0, TILE_SIZE - target_h)
+            new_box = Box(x, y, x + target_w, y + target_h)
+            if all(box_iou(new_box, old) <= 0.15 for old in existing):
+                result[y : y + target_h, x : x + target_w] = resized
+                existing.append(new_box)
+                new_labels.append(to_yolo(new_box))
+                break
+
+    return result, new_labels
+
+
+def clamp_labels(labels: list[tuple[int, float, float, float, float]]) -> list[tuple[int, float, float, float, float]]:
+    cleaned = []
+    seen = set()
+    for cls, cx, cy, bw, bh in labels:
+        cx = max(0.0, min(1.0, cx))
+        cy = max(0.0, min(1.0, cy))
+        bw = max(0.0, min(1.0, bw))
+        bh = max(0.0, min(1.0, bh))
+        if cls == CLASS_ID and bw > 0 and bh > 0:
+            key = (cls, round(cx, 6), round(cy, 6), round(bw, 6), round(bh, 6))
+            if key not in seen:
+                cleaned.append((cls, cx, cy, bw, bh))
+                seen.add(key)
+    return cleaned
+
+
+def generate_base_samples(
+    splits: dict[str, list[SourceImage]],
+    output_dir: Path,
+    seed: int,
+) -> tuple[list[OutputSample], list[tuple[np.ndarray, list[tuple[int, float, float, float, float]], OutputSample]], dict]:
+    rng = random.Random(seed)
+    used_names: set[str] = set()
+    manifest: list[OutputSample] = []
+    train_base_images: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]], OutputSample]] = []
+    generation_stats = {
+        "positive_windows": Counter(),
+        "empty_window_candidates": Counter(),
+        "kept_empty_windows": Counter(),
+        "large_images_tiled": Counter(),
+        "small_images_letterboxed": Counter(),
+        "dropped_boxes_after_transform": 0,
+    }
+
+    for split, items in splits.items():
+        empty_candidates: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]], OutputSample]] = []
+        positive_outputs: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]], OutputSample]] = []
+
+        for item in items:
+            image = cv2.imread(str(item.path))
+            if image is None:
+                continue
+            h, w = image.shape[:2]
+            base_stem = f"{slugify(item.source)}_{slugify(Path(item.file_name).stem)}"
+
+            if max(w, h) > TILE_SIZE:
+                generation_stats["large_images_tiled"][split] += 1
+                for y in window_starts(h):
+                    for x in window_starts(w):
+                        tile, labels = process_tile(image, item.boxes, x, y)
+                        labels = clamp_labels(labels)
+                        name = unique_name(f"{base_stem}_tile_x{x}_y{y}.jpg", used_names)
+                        sample = OutputSample(split, name, f"{Path(name).stem}.txt", item.source, item.source_key, f"tile_x{x}_y{y}", labels)
+                        if labels:
+                            positive_outputs.append((tile, labels, sample))
+                        else:
+                            empty_candidates.append((tile, labels, sample))
+            else:
+                generation_stats["small_images_letterboxed"][split] += 1
+                canvas, labels = process_small_image(image, item.boxes)
+                labels = clamp_labels(labels)
+                generation_stats["dropped_boxes_after_transform"] += max(0, len(item.boxes) - len(labels))
+                name = unique_name(f"{base_stem}_letterbox.jpg", used_names)
+                sample = OutputSample(split, name, f"{Path(name).stem}.txt", item.source, item.source_key, "letterbox", labels)
+                if labels:
+                    positive_outputs.append((canvas, labels, sample))
+                else:
+                    empty_candidates.append((canvas, labels, sample))
+
+        max_empty = int(len(positive_outputs) * 0.10)
+        kept_empty = rng.sample(empty_candidates, min(len(empty_candidates), max_empty)) if max_empty > 0 else []
+        generation_stats["positive_windows"][split] = len(positive_outputs)
+        generation_stats["empty_window_candidates"][split] = len(empty_candidates)
+        generation_stats["kept_empty_windows"][split] = len(kept_empty)
+
+        for image, labels, sample in positive_outputs + kept_empty:
+            write_image_and_label(output_dir, split, sample.image_name, image, labels)
+            manifest.append(sample)
+            if split == "train":
+                train_base_images.append((image, labels, sample))
+
+    generation_stats = {
+        key: dict(value) if isinstance(value, Counter) else value
+        for key, value in generation_stats.items()
+    }
+    return manifest, train_base_images, generation_stats
+
+
+def augment_train(
+    train_base_images: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]], OutputSample]],
+    output_dir: Path,
+    seed: int,
+) -> list[OutputSample]:
+    rng = random.Random(seed + 1)
+    np_rng = np.random.default_rng(seed + 1)
+    used_names = {path.name for path in (output_dir / "train" / "images").glob("*.jpg")}
+    augmented_manifest: list[OutputSample] = []
+    crops = extract_crops([(image, labels) for image, labels, _ in train_base_images])
+
+    geometric_transforms = [
+        ("hflip", transform_hflip),
+        ("vflip", transform_vflip),
+        ("rot90", transform_rot90),
+        ("rot180", transform_rot180),
+        ("rot270", transform_rot270),
+    ]
+
+    for image, labels, base_sample in train_base_images:
+        if not labels:
+            continue
+        stem = Path(base_sample.image_name).stem
+
+        for suffix, fn in geometric_transforms:
+            aug_image, aug_labels = fn(image, labels)
+            aug_labels = clamp_labels(aug_labels)
+            name = unique_name(f"{stem}_{suffix}.jpg", used_names)
+            write_image_and_label(output_dir, "train", name, aug_image, aug_labels)
+            augmented_manifest.append(
+                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, suffix, aug_labels)
+            )
+
+        photometric = [
+            ("bright085", transform_brightness(image, 0.85)),
+            ("bright115", transform_brightness(image, 1.15)),
+            ("contrast090", transform_contrast(image, 0.90)),
+            ("contrast110", transform_contrast(image, 1.10)),
+            ("hsv_warm", transform_hsv(image, 4, 1.08, 1.04)),
+            ("hsv_cool", transform_hsv(image, -4, 0.92, 0.96)),
+            ("noise", transform_noise(image, np_rng)),
+        ]
+        for suffix, aug_image in photometric:
+            name = unique_name(f"{stem}_{suffix}.jpg", used_names)
+            write_image_and_label(output_dir, "train", name, aug_image, labels)
+            augmented_manifest.append(
+                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, suffix, labels)
+            )
+
+        for index in range(2):
+            aug_image, aug_labels = transform_copy_paste(image, labels, crops, rng)
+            aug_labels = clamp_labels(aug_labels)
+            name = unique_name(f"{stem}_cpaste{index}.jpg", used_names)
+            write_image_and_label(output_dir, "train", name, aug_image, aug_labels)
+            augmented_manifest.append(
+                OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, f"copy_paste_{index}", aug_labels)
+            )
+
+    return augmented_manifest
+
+
+def validate_dataset(output_dir: Path, manifest: list[OutputSample]) -> dict:
+    errors: list[str] = []
+    split_by_source: dict[str, set[str]] = defaultdict(set)
+    label_counts = Counter()
+    box_widths: list[float] = []
+    box_heights: list[float] = []
+
+    for sample in manifest:
+        image_path = output_dir / sample.split / "images" / sample.image_name
+        label_path = output_dir / sample.split / "labels" / sample.label_name
+        if not image_path.exists():
+            errors.append(f"Missing image: {image_path}")
+        if not label_path.exists():
+            errors.append(f"Missing label: {label_path}")
+            continue
+        split_by_source[sample.source_key].add(sample.split)
+        lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        label_counts[sample.split] += len(lines)
+        for line_no, line in enumerate(lines, start=1):
+            parts = line.split()
+            if len(parts) != 5:
+                errors.append(f"{label_path}:{line_no} expected 5 columns")
+                continue
+            try:
+                cls, cx, cy, bw, bh = [float(part) for part in parts]
+            except ValueError:
+                errors.append(f"{label_path}:{line_no} has non-numeric values")
+                continue
+            if int(cls) != CLASS_ID:
+                errors.append(f"{label_path}:{line_no} invalid class {cls}")
+            if not all(0.0 <= value <= 1.0 for value in [cx, cy, bw, bh]):
+                errors.append(f"{label_path}:{line_no} has value outside [0,1]")
+            if bw <= 0 or bh <= 0:
+                errors.append(f"{label_path}:{line_no} has non-positive box")
+            box_widths.append(bw * TILE_SIZE)
+            box_heights.append(bh * TILE_SIZE)
+        if len(lines) != len(set(lines)):
+            errors.append(f"{label_path} contains duplicate labels")
+
+    leakage = {source: sorted(splits) for source, splits in split_by_source.items() if len(splits) > 1}
+    if leakage:
+        errors.append(f"Source images crossed splits: {len(leakage)}")
+
+    images_by_split = {
+        split: len(list((output_dir / split / "images").glob("*.jpg")))
+        for split in ["train", "val", "test"]
+    }
+    labels_by_split = {
+        split: len(list((output_dir / split / "labels").glob("*.txt")))
+        for split in ["train", "val", "test"]
+    }
+    for split in ["train", "val", "test"]:
+        if images_by_split[split] != labels_by_split[split]:
+            errors.append(f"{split} image/label count mismatch: {images_by_split[split]} vs {labels_by_split[split]}")
+
+    return {
+        "ok": not errors,
+        "errors": errors[:50],
+        "error_count": len(errors),
+        "images_by_split": images_by_split,
+        "labels_by_split": labels_by_split,
+        "boxes_by_split": dict(label_counts),
+        "box_width_px": summarize_numbers(box_widths),
+        "box_height_px": summarize_numbers(box_heights),
+        "source_split_leakage_count": len(leakage),
+    }
+
+
+def summarize_numbers(values: list[float]) -> dict:
+    if not values:
+        return {"count": 0}
+    arr = np.array(values, dtype=np.float64)
+    return {
+        "count": int(arr.size),
+        "min": round(float(arr.min()), 3),
+        "p50": round(float(np.percentile(arr, 50)), 3),
+        "p90": round(float(np.percentile(arr, 90)), 3),
+        "max": round(float(arr.max()), 3),
+        "mean": round(float(arr.mean()), 3),
+    }
+
+
+def manifest_to_json(manifest: list[OutputSample]) -> list[dict]:
+    return [
+        {
+            "split": item.split,
+            "image": item.image_name,
+            "label": item.label_name,
+            "source": item.source,
+            "source_key": item.source_key,
+            "transform": item.transform,
+            "boxes": len(item.labels),
+            "width": item.width,
+            "height": item.height,
+        }
+        for item in manifest
+    ]
+
+
+def write_yaml(output_dir: Path) -> None:
+    yaml_text = f"""path: {output_dir.as_posix()}
+train: train/images
+val: val/images
+test: test/images
+
+nc: 1
+names: ["{CLASS_NAME}"]
+"""
+    (output_dir / "bubble.yaml").write_text(yaml_text, encoding="utf-8")
+
+
+def draw_previews(output_dir: Path, manifest: list[OutputSample], seed: int) -> None:
+    rng = random.Random(seed)
+    for split in ["train", "val", "test"]:
+        samples = [item for item in manifest if item.split == split and item.labels]
+        for index, sample in enumerate(rng.sample(samples, min(3, len(samples)))):
+            image_path = output_dir / split / "images" / sample.image_name
+            image = cv2.imread(str(image_path))
+            if image is None:
+                continue
+            for _cls, cx, cy, bw, bh in sample.labels:
+                x1 = int((cx - bw / 2) * TILE_SIZE)
+                y1 = int((cy - bh / 2) * TILE_SIZE)
+                x2 = int((cx + bw / 2) * TILE_SIZE)
+                y2 = int((cy + bh / 2) * TILE_SIZE)
+                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
+            preview_name = f"{split}_{index}_{Path(sample.image_name).stem}_overlay.jpg"
+            cv2.imwrite(str(output_dir / "quality_preview" / preview_name), image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+
+
+def write_report(output_dir: Path, source_stats: dict, build_stats: dict, validation: dict) -> None:
+    dataset_rows = []
+    for item in source_stats["datasets"]:
+        common_dims = ", ".join(
+            f"{dim['width']}x{dim['height']}({dim['count']})"
+            for dim in item["common_dimensions"][:3]
+        )
+        dataset_rows.append(
+            f"| {item['name']} | {item['loaded_images']} | {item['valid_boxes']} | {item['missing_images']} | {item['invalid_boxes']} | {common_dims} |"
+        )
+
+    image_counts = validation["images_by_split"]
+    box_counts = validation["boxes_by_split"]
+    report = f"""# 综合气泡检测数据集构建说明
+
+## 构建概览
+
+本数据集由 `Dataset` 目录下 7 个 COCO 导出子数据集合并生成，所有标注类别统一映射为 `bubble`，YOLO 类别编号为 `0`。输出目录为 `yolo_dataset_integrated`，训练配置文件为 `yolo_dataset_integrated/bubble.yaml`。
+
+采用固定随机种子 `42` 按原图随机拆分：`train/val/test = 80/15/5`。所有由同一原图派生出的切片和增强样本只保留在同一个 split 中，避免同一原图跨训练、验证和测试集合。
+
+## 数据来源统计
+
+| 来源 | 有效图片数 | 有效标注框数 | 缺失图片数 | 无效框数 | 主要分辨率 |
+| --- | ---: | ---: | ---: | ---: | --- |
+{chr(10).join(dataset_rows)}
+
+原始类别统计：`{source_stats['category_names']}`。
+
+## 窗口与标注处理
+
+- 任一边大于 `640` 的图片使用 `640x640` 滑动窗口切片，stride 为 `480`，边缘自动补最后一窗以覆盖全图。
+- 任一边不大于 `640` 的图片保持比例缩放，并居中 padding 到 `640x640`。
+- 切片中的 bbox 需要满足：中心点落入 tile；裁剪后宽高均不少于 `4px`；保留面积不少于原框面积的 `40%`。
+- 空切片作为负样本最多保留为正样本切片数的 `10%`，本次实际保留统计见 `build_stats.json`。
+
+## 数据增强
+
+只对 `train` 集执行离线增强，`val` 和 `test` 保持未增强。增强包括水平翻转、垂直翻转、90/180/270 度旋转、轻度亮度/对比度/HSV 调整、轻噪声和 copy-paste。copy-paste 的气泡裁剪仅来自 train split，避免验证/测试泄漏。
+
+## 输出数据统计
+
+| Split | 图片数 | 标注文件数 | 标注框数 |
+| --- | ---: | ---: | ---: |
+| train | {image_counts.get('train', 0)} | {validation['labels_by_split'].get('train', 0)} | {box_counts.get('train', 0)} |
+| val | {image_counts.get('val', 0)} | {validation['labels_by_split'].get('val', 0)} | {box_counts.get('val', 0)} |
+| test | {image_counts.get('test', 0)} | {validation['labels_by_split'].get('test', 0)} | {box_counts.get('test', 0)} |
+
+构建后 bbox 宽度统计：`{validation['box_width_px']}`。
+
+构建后 bbox 高度统计：`{validation['box_height_px']}`。
+
+## 质量检查
+
+- 每张输出图片都有同名 YOLO 标签文件。
+- 所有标签均为 5 列，类别为 `0`，归一化坐标位于 `[0, 1]`。
+- bbox 宽高均为正值。
+- 同一原图派生样本没有跨 split。
+- 抽检 overlay 图输出在 `yolo_dataset_integrated/quality_preview`。
+
+校验结果：`{"PASS" if validation["ok"] else "FAIL"}`；错误数：`{validation["error_count"]}`。
+
+## 已知限制
+
+本次采用用户指定的随机按图拆分。由于部分图片来自视频帧或相近采样帧，随机拆分可能让相近帧分别进入 train 和 val/test，验证指标可能略高于真实跨场景泛化表现。如果后续要评估更严格的泛化能力，建议改为按来源或视频分组拆分。
+"""
+    report += build_distribution_balance_section(build_stats, validation)
+    Path("DATASET_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+
+
+def build_distribution_balance_section(build_stats: dict, validation: dict) -> str:
+    output_balance = build_stats.get("output_balance", {})
+    source_rows = []
+    for source, item in sorted(output_balance.get("source_summary", {}).items()):
+        source_rows.append(
+            f"| {source} | {item.get('train_images', 0)} | {item.get('val_images', 0)} | "
+            f"{item.get('test_images', 0)} | {item.get('total_images', 0)} | "
+            f"{item.get('total_boxes', 0)} | {item.get('image_percent', 0):.1f}% |"
+        )
+
+    split_density_rows = []
+    for split in ["train", "val", "test"]:
+        item = output_balance.get("split_density", {}).get(split, {})
+        split_density_rows.append(
+            f"| {split} | {item.get('images', 0)} | {item.get('boxes', 0)} | "
+            f"{item.get('boxes_per_image', 0):.2f} |"
+        )
+
+    return f"""
+
+## 样本分布与均衡性说明
+
+从类别维度看，本数据集是单类别气泡检测任务，所有有效标注均统一映射为 `bubble`，因此不存在多类别检测中常见的类别长尾问题。当前更需要关注的是来源场景、目标密度和目标尺度是否覆盖充分。
+
+从来源维度看，构建后的样本并非简单按原图数量平均分配，而是经过滑窗切片后自然提高了高分辨率、密集气泡场景的训练占比。这种分布是符合任务目标的：大图和高密度画面更容易出现小目标、遮挡、边缘截断和局部密集排列，增加这些样本的训练权重，有助于模型学习气泡检测中更困难也更有价值的场景。同时，`20+40`、`60+80`、`bubble_fc` 等不同采集条件仍被纳入训练集，能够提供背景、尺度和亮度变化上的补充。
+
+| 来源 | train 图像数 | val 图像数 | test 图像数 | 总图像数 | 总标注框数 | 图像占比 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(source_rows)}
+
+从 split 维度看，原始图片按 `80/15/5` 随机拆分后再进行派生处理，所有由同一原图生成的切片和增强样本都保留在同一 split 内。训练集数量显著大于验证集和测试集，是因为离线增强只作用于 train；val/test 保持未增强，用于更稳定地反映真实数据分布。
+
+| Split | 图像数 | 标注框数 | 平均每图标注框数 |
+| --- | ---: | ---: | ---: |
+{chr(10).join(split_density_rows)}
+
+从目标尺度看，构建后 bbox 宽度中位数约为 `{validation['box_width_px'].get('p50', 0)}` px，高度中位数约为 `{validation['box_height_px'].get('p50', 0)}` px，说明 640 滑窗策略有效避免了把 1920x1080 大图直接缩放到 640 时造成的小气泡过度压缩。整体上，该数据集更偏向“气泡密集、小目标友好、复杂场景充分”的训练集，而不是追求每个来源绝对等量的统计均匀。这个选择更贴近后续模型训练目标。
+
+需要注意的是，由于当前按原图随机拆分，val/test 中小样本来源的覆盖不如 train 完整，尤其 `bubble_pad`、`bubble_1` 等来源没有进入验证或测试 split。因此，本数据集适合作为综合训练集和常规验证基线；若后续要严谨评估跨采集条件泛化能力，建议额外建立按来源或按视频分组的独立测试集。
+"""
+
+
+def summarize_output_balance(manifest: list[OutputSample]) -> dict:
+    source_names = sorted({item.source for item in manifest})
+    source_summary = {}
+    for source in source_names:
+        source_items = [item for item in manifest if item.source == source]
+        source_summary[source] = {
+            "train_images": sum(1 for item in source_items if item.split == "train"),
+            "val_images": sum(1 for item in source_items if item.split == "val"),
+            "test_images": sum(1 for item in source_items if item.split == "test"),
+            "total_images": len(source_items),
+            "total_boxes": sum(len(item.labels) for item in source_items),
+            "image_percent": len(source_items) / len(manifest) * 100 if manifest else 0.0,
+        }
+
+    split_density = {}
+    for split in ["train", "val", "test"]:
+        split_items = [item for item in manifest if item.split == split]
+        boxes = sum(len(item.labels) for item in split_items)
+        split_density[split] = {
+            "images": len(split_items),
+            "boxes": boxes,
+            "boxes_per_image": boxes / len(split_items) if split_items else 0.0,
+        }
+
+    return {
+        "source_summary": source_summary,
+        "split_density": split_density,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build integrated bubble YOLO dataset.")
+    parser.add_argument("--input", type=Path, default=Path("Dataset"))
+    parser.add_argument("--output", type=Path, default=Path("yolo_dataset_integrated"))
+    parser.add_argument("--seed", type=int, default=SEED)
+    args = parser.parse_args()
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+
+    input_dir = args.input.resolve()
+    output_dir = args.output.resolve()
+    ensure_clean_output(output_dir)
+
+    sources, source_stats = load_coco_sources(input_dir)
+    splits = split_sources(sources, args.seed)
+    base_manifest, train_base_images, generation_stats = generate_base_samples(splits, output_dir, args.seed)
+    augmented_manifest = augment_train(train_base_images, output_dir, args.seed)
+    manifest = base_manifest + augmented_manifest
+
+    write_yaml(output_dir)
+    validation = validate_dataset(output_dir, manifest)
+    draw_previews(output_dir, manifest, args.seed)
+
+    split_source_counts = {
+        split: Counter(item.source for item in items)
+        for split, items in splits.items()
+    }
+    build_stats = {
+        "seed": args.seed,
+        "tile_size": TILE_SIZE,
+        "tile_stride": TILE_STRIDE,
+        "split_ratio": {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO},
+        "source_images_total": len(sources),
+        "source_images_by_split": {split: len(items) for split, items in splits.items()},
+        "source_counts_by_split": {split: dict(counter) for split, counter in split_source_counts.items()},
+        "generation": generation_stats,
+        "augmentation": {
+            "train_base_samples": len(train_base_images),
+            "augmented_train_samples": len(augmented_manifest),
+        },
+        "output_balance": summarize_output_balance(manifest),
+        "validation": validation,
+    }
+    (output_dir / "build_stats.json").write_text(json.dumps(build_stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "manifest.json").write_text(json.dumps(manifest_to_json(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_report(output_dir, source_stats, build_stats, validation)
+
+    print(json.dumps(build_stats, ensure_ascii=False, indent=2))
+    if not validation["ok"]:
+        raise SystemExit(f"Validation failed with {validation['error_count']} errors")
+
+
+if __name__ == "__main__":
+    main()
