@@ -19,6 +19,15 @@ def fmt(value) -> str:
         return str(value)
 
 
+def values_for(rows: list[dict], key: str) -> str:
+    values = []
+    for row in rows:
+        value = row.get(key, "")
+        if value and value not in values:
+            values.append(str(value))
+    return ", ".join(values)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, default=ROOT / "runs" / "bubble")
@@ -37,7 +46,8 @@ def main() -> int:
         "",
         f"- Generated: {datetime.now().isoformat(timespec='seconds')}",
         f"- Project: `{project}`",
-        f"- Dataset: `yolo_dataset_grouped/bubble.yaml`",
+        f"- Training dataset: `{values_for(rows, 'data_config') or 'unknown'}`",
+        f"- Official eval dataset: `{values_for(rows, 'official_eval_data_config') or 'unknown'}`",
         "",
         "## Experiment Summary",
         "",

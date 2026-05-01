@@ -39,6 +39,9 @@ TEST_RATIO = 0.05
 GROUP_TRAIN_RATIO = 0.75
 GROUP_VAL_RATIO = 0.10
 GROUP_TEST_RATIO = 0.15
+BALANCED_TRAIN_RATIO = 0.70
+BALANCED_VAL_RATIO = 0.15
+BALANCED_TEST_RATIO = 0.15
 SEED = 42
 CLASS_ID = 0
 CLASS_NAME = "bubble"
@@ -296,6 +299,68 @@ def split_sources_by_group(items: list[SourceImage], seed: int) -> dict[str, lis
     for group_key, group_sources in group_items:
         splits[assignments[group_key]].extend(group_sources)
     return splits
+
+
+def split_sources_balanced_v2(items: list[SourceImage], seed: int) -> dict[str, list[SourceImage]]:
+    """Split each source/group by source_key so every major source reaches train/val/test.
+
+    This is the main paper-experiment split. It avoids the strict grouped mode's
+    whole-domain holdout for sources that only have one coarse group.
+    """
+    rng = random.Random(seed)
+    splits: dict[str, list[SourceImage]] = {"train": [], "val": [], "test": []}
+
+    by_source: dict[str, list[SourceImage]] = defaultdict(list)
+    for item in items:
+        by_source[item.source].append(item)
+
+    for source in sorted(by_source):
+        by_group: dict[str, list[SourceImage]] = defaultdict(list)
+        for item in by_source[source]:
+            by_group[item.group_key].append(item)
+        for group_key in sorted(by_group):
+            group_items = sorted(by_group[group_key], key=lambda item: item.source_key)
+            assigned = split_source_key_bucket(group_items, rng)
+            for split, split_items in assigned.items():
+                splits[split].extend(split_items)
+
+    for split in splits:
+        splits[split].sort(key=lambda item: (item.source, item.group_key, item.source_key))
+    return splits
+
+
+def split_source_key_bucket(items: list[SourceImage], rng: random.Random) -> dict[str, list[SourceImage]]:
+    """Split a same-source/same-group bucket without source_key leakage."""
+    by_key: dict[str, list[SourceImage]] = defaultdict(list)
+    for item in items:
+        by_key[item.source_key].append(item)
+
+    keys = sorted(by_key)
+    rng.shuffle(keys)
+    n = len(keys)
+    if n == 1:
+        counts = {"train": 1, "val": 0, "test": 0}
+    elif n == 2:
+        counts = {"train": 1, "val": 1, "test": 0}
+    elif n == 3:
+        counts = {"train": 1, "val": 1, "test": 1}
+    else:
+        n_val = max(1, round(n * BALANCED_VAL_RATIO))
+        n_test = max(1, round(n * BALANCED_TEST_RATIO))
+        if n_val + n_test >= n:
+            n_val = 1
+            n_test = 1
+        counts = {"train": n - n_val - n_test, "val": n_val, "test": n_test}
+
+    split_keys = {
+        "train": keys[: counts["train"]],
+        "val": keys[counts["train"] : counts["train"] + counts["val"]],
+        "test": keys[counts["train"] + counts["val"] :],
+    }
+    return {
+        split: [item for key in split_keys[split] for item in by_key[key]]
+        for split in ("train", "val", "test")
+    }
 
 
 def choose_balanced_group_assignment(group_items: list[tuple[str, list[SourceImage]]]) -> dict[str, str]:
@@ -675,6 +740,7 @@ def augment_train(
     train_base_images: list[tuple[np.ndarray, list[tuple[int, float, float, float, float]], OutputSample]],
     output_dir: Path,
     seed: int,
+    profile: str = "full",
 ) -> list[OutputSample]:
     rng = random.Random(seed + 1)
     np_rng = np.random.default_rng(seed + 1)
@@ -682,13 +748,18 @@ def augment_train(
     augmented_manifest: list[OutputSample] = []
     crops = extract_crops([(image, labels) for image, labels, _ in train_base_images])
 
-    geometric_transforms = [
-        ("hflip", transform_hflip),
-        ("vflip", transform_vflip),
-        ("rot90", transform_rot90),
-        ("rot180", transform_rot180),
-        ("rot270", transform_rot270),
-    ]
+    if profile == "balanced-v2":
+        geometric_transforms = [("hflip", transform_hflip)]
+        copy_paste_count = 0
+    else:
+        geometric_transforms = [
+            ("hflip", transform_hflip),
+            ("vflip", transform_vflip),
+            ("rot90", transform_rot90),
+            ("rot180", transform_rot180),
+            ("rot270", transform_rot270),
+        ]
+        copy_paste_count = 2
 
     for image, labels, base_sample in train_base_images:
         if not labels:
@@ -720,7 +791,7 @@ def augment_train(
                 OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, base_sample.group_key, suffix, labels)
             )
 
-        for index in range(2):
+        for index in range(copy_paste_count):
             aug_image, aug_labels = transform_copy_paste(image, labels, crops, rng)
             aug_labels = clamp_labels(aug_labels)
             name = unique_name(f"{stem}_cpaste{index}.jpg", used_names)
@@ -1102,6 +1173,30 @@ bbox 高度统计：`{validation['box_height_px']}`
     top_level_report.write_text(report, encoding="utf-8")
 
 
+def write_balanced_v2_report(output_dir: Path, source_stats: dict, build_stats: dict, validation: dict) -> None:
+    write_grouped_report(output_dir, source_stats, build_stats, validation)
+    report_path = output_dir / "DATASET_BUILD_REPORT.md"
+    report = report_path.read_text(encoding="utf-8")
+    report = report.replace(
+        "# 气泡检测 YOLO 数据集构建报告",
+        "# 气泡检测 YOLO Balanced V2 主数据集构建报告",
+        1,
+    )
+    report = report.replace(
+        "`group` 模式会先按物理源头或采集条件生成 `group_key`，再做 train/val/test 划分。这样同一视频、同一实验条件或同一采集序列不会同时进入训练集和验证/测试集，可作为论文最终泛化测试集。",
+        "`balanced-v2` 模式按 source -> group_key -> source_key 分层切分，使所有主要数据来源都覆盖 train/val/test；同一原图或同一高分辨率图切片不会跨 split。该数据集作为后续 baseline 与消融实验的主数据集；旧 `yolo_dataset_grouped` 保留为 OOD 泛化压力测试集。",
+        1,
+    )
+    report = report.replace(
+        "`yolo_dataset_integrated` 可作为历史随机原图划分与快速开发集；`yolo_dataset_grouped` 应作为正式泛化测试集。论文中建议表述为：本文按物理源头和采集条件隔离训练、验证与测试数据，避免相邻帧、同实验条件和同源切片导致的指标虚高。",
+        "`yolo_dataset_balanced_v2` 作为主实验数据集，用于 baseline、SSB、GLRB、NWD 等消融；`yolo_dataset_grouped` 作为额外 OOD 泛化测试集，不用于 checkpoint 选择或主 baseline 定义。",
+        1,
+    )
+    report_path.write_text(report, encoding="utf-8")
+    Path("DATASET_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+    Path("DATASET_BALANCED_V2_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+
+
 def summarize_output_balance(manifest: list[OutputSample]) -> dict:
     source_names = sorted({item.source for item in manifest})
     source_summary = {}
@@ -1155,9 +1250,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("yolo_dataset_grouped"))
     parser.add_argument(
         "--split-mode",
-        choices=["group", "source"],
+        choices=["group", "source", "balanced-v2", "balanced_v2"],
         default="group",
-        help="group isolates coarse physical sources; source keeps the legacy per-image random split.",
+        help="group isolates coarse physical sources; source keeps legacy per-image random split; balanced-v2 is the main experiment split.",
     )
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
@@ -1169,14 +1264,20 @@ def main() -> None:
     output_dir = args.output.resolve()
     ensure_clean_output(output_dir)
 
+    split_mode = "balanced-v2" if args.split_mode == "balanced_v2" else args.split_mode
     sources, source_stats = load_coco_sources(input_dir)
-    splits = split_sources_by_group(sources, args.seed) if args.split_mode == "group" else split_sources(sources, args.seed)
+    if split_mode == "group":
+        splits = split_sources_by_group(sources, args.seed)
+    elif split_mode == "balanced-v2":
+        splits = split_sources_balanced_v2(sources, args.seed)
+    else:
+        splits = split_sources(sources, args.seed)
     base_manifest, train_base_images, generation_stats = generate_base_samples(splits, output_dir, args.seed)
-    augmented_manifest = augment_train(train_base_images, output_dir, args.seed)
+    augmented_manifest = augment_train(train_base_images, output_dir, args.seed, profile=split_mode)
     manifest = base_manifest + augmented_manifest
 
     write_yaml(output_dir)
-    validation = validate_dataset(output_dir, manifest, enforce_group_isolation=args.split_mode == "group")
+    validation = validate_dataset(output_dir, manifest, enforce_group_isolation=split_mode == "group")
     draw_previews(output_dir, manifest, args.seed)
 
     split_source_counts = {
@@ -1189,12 +1290,14 @@ def main() -> None:
     }
     split_ratio = (
         {"train": GROUP_TRAIN_RATIO, "val": GROUP_VAL_RATIO, "test": GROUP_TEST_RATIO}
-        if args.split_mode == "group"
+        if split_mode == "group"
+        else {"train": BALANCED_TRAIN_RATIO, "val": BALANCED_VAL_RATIO, "test": BALANCED_TEST_RATIO}
+        if split_mode == "balanced-v2"
         else {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO}
     )
     build_stats = {
         "seed": args.seed,
-        "split_mode": args.split_mode,
+        "split_mode": split_mode,
         "tile_size": TILE_SIZE,
         "tile_stride": TILE_STRIDE,
         "split_ratio": split_ratio,
@@ -1212,7 +1315,10 @@ def main() -> None:
     }
     (output_dir / "build_stats.json").write_text(json.dumps(build_stats, ensure_ascii=False, indent=2), encoding="utf-8")
     (output_dir / "manifest.json").write_text(json.dumps(manifest_to_json(manifest), ensure_ascii=False, indent=2), encoding="utf-8")
-    write_grouped_report(output_dir, source_stats, build_stats, validation)
+    if split_mode == "balanced-v2":
+        write_balanced_v2_report(output_dir, source_stats, build_stats, validation)
+    else:
+        write_grouped_report(output_dir, source_stats, build_stats, validation)
 
     print(json.dumps(build_stats, ensure_ascii=False, indent=2))
     if not validation["ok"]:

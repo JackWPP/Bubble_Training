@@ -214,6 +214,7 @@ def main() -> int:
     register_bubble_modules()
 
     exp = load_experiment(args.exp, args.matrix if args.matrix.is_absolute() else ROOT / args.matrix)
+    has_exp_config = bool(args.config or exp.get("train_config"))
     preset_path = args.config or exp.get("train_config") or ROOT / "configs" / "train" / f"{args.preset}.yaml"
     preset_path = preset_path if isinstance(preset_path, Path) else Path(preset_path)
     config = load_yaml(preset_path if preset_path.is_absolute() else ROOT / preset_path)
@@ -223,7 +224,7 @@ def main() -> int:
     official_eval_data_path = resolve_project_path(args.eval_data or config.get("eval_data", data_path))
     project = resolve_project_path(args.project or config.get("project", "runs/bubble"))
     run_name = args.name or exp["name"]
-    if args.preset not in {"full", "full_conservative"} and not args.name:
+    if not has_exp_config and args.preset not in {"full", "full_conservative"} and not args.name:
         run_name = f"{run_name}_{args.preset}"
 
     overrides = {
@@ -254,10 +255,13 @@ def main() -> int:
 
     eval_only = bool(args.eval_only or exp.get("eval_only", False))
     if not args.no_pretrained and model_path.endswith((".yaml", ".yml")):
-        train_args["pretrained"] = resolve_model_path(args.weights)
+        effective_pretrained_weight = resolve_model_path(args.weights)
+        train_args["pretrained"] = effective_pretrained_weight
     elif not args.no_pretrained:
+        effective_pretrained_weight = model_path if model_path.endswith(".pt") else ""
         train_args["pretrained"] = True
     else:
+        effective_pretrained_weight = ""
         train_args["pretrained"] = False
 
     print(f"[train] exp={args.exp} name={run_name} model={model_path}")
@@ -347,7 +351,7 @@ def main() -> int:
         "name": run_name,
         "modules": exp.get("modules", ""),
         "model": model_path,
-        "pretrained_weight": resolve_model_path(args.weights),
+        "pretrained_weight": effective_pretrained_weight,
         "data_config": data_path,
         "official_eval_data_config": official_eval_data_path,
         "preset": args.preset,

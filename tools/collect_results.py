@@ -22,7 +22,7 @@ METRIC_KEYS = {
 def read_summary(run_dir: Path) -> dict[str, Any]:
     path = run_dir / "summary.json"
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     return {}
 
 
@@ -72,6 +72,9 @@ def collect(project: Path) -> list[dict[str, Any]]:
             "exp_id": summary.get("exp_id", run_dir.name.split("_", 1)[0]),
             "name": summary.get("name", run_dir.name),
             "model": summary.get("model", ""),
+            "pretrained_weight": summary.get("pretrained_weight", ""),
+            "data_config": summary.get("data_config", ""),
+            "official_eval_data_config": summary.get("official_eval_data_config", ""),
             "modules": summary.get("modules", ""),
             "nwd_weight": summary.get("nwd_weight", 0.0),
             "params": model_info.get("params", ""),
@@ -116,6 +119,9 @@ def main() -> int:
         "exp_id",
         "name",
         "model",
+        "pretrained_weight",
+        "data_config",
+        "official_eval_data_config",
         "modules",
         "nwd_weight",
         "params",

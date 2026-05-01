@@ -16,6 +16,18 @@ experiments:
     modules: conservative-baseline-freeze10
     use_nwd: false
     train_config: configs/train/full_conservative_freeze.yaml
+  BV2N:
+    name: BV2N_yolo11n_balanced_v2_smoke
+    model: yolo11n.pt
+    modules: balanced-v2-nano-smoke
+    use_nwd: false
+    train_config: configs/train/balanced_v2_nano_smoke.yaml
+  BV2S:
+    name: BV2S_yolo11s_balanced_v2_baseline
+    model: yolo11s.pt
+    modules: balanced-v2-yolo11s-baseline
+    use_nwd: false
+    train_config: configs/train/balanced_v2_baseline.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt

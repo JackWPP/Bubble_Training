@@ -78,6 +78,8 @@ python .\07_build_integrated_dataset.py --split-mode source --output yolo_datase
 训练策略和实验矩阵见 `BUBBLE_YOLO_TRAINING_PLAN.md`。新实验统一使用 YOLO11s 与 grouped 数据集：
 
 ```powershell
+python .\07_build_integrated_dataset.py --split-mode balanced-v2 --output yolo_dataset_balanced_v2
+python .\tools\validate_balanced_v2_dataset.py
 python .\tools\make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
 python .\tools\validate_train_dev_split.py
 python .\tools\validate_grouped_dataset.py
@@ -97,7 +99,7 @@ python .\scripts\train_experiment.py --exp E3 --preset smoke --device 0 --exist-
 ```bash
 python tools/make_train_dev_split.py --ratio 0.15 --min-images 50 --seed 42
 python tools/validate_train_dev_split.py
-python scripts/run_nightly.py --preset full_conservative --device 0,1 --baseline-fix --resume-missing
+python scripts/train_experiment.py --exp BV2S --device 0,1 --exist-ok
 ```
 
 压缩矩阵：
