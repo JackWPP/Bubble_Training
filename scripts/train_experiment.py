@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from ultralytics_custom import register_bubble_modules
 from ultralytics_custom.bubble_loss import enable_nwd_loss
+from ultralytics_custom.trainer import BubbleDetectionTrainer, BubbleNWDDetectionTrainer
 
 
 TRAIN_KEYS = {
@@ -100,6 +101,14 @@ def parse_device(value: Any) -> Any:
     if isinstance(value, str) and "," in value:
         return [int(part.strip()) for part in value.split(",") if part.strip()]
     return value
+
+
+def ensure_repo_pythonpath() -> None:
+    """Make repo-local modules importable from Ultralytics DDP temp scripts."""
+    root = str(ROOT)
+    parts = [part for part in os.environ.get("PYTHONPATH", "").split(os.pathsep) if part]
+    if root not in parts:
+        os.environ["PYTHONPATH"] = os.pathsep.join([root, *parts])
 
 
 def jsonable(value: Any) -> Any:
@@ -505,6 +514,7 @@ def run_conf_sweep(
 
 def main() -> int:
     args = build_parser().parse_args()
+    ensure_repo_pythonpath()
     register_bubble_modules()
 
     exp = load_experiment(args.exp, args.matrix if args.matrix.is_absolute() else ROOT / args.matrix)
@@ -546,6 +556,8 @@ def main() -> int:
     nwd_constant = args.nwd_constant if args.nwd_constant is not None else float(exp.get("nwd_constant", 12.8))
     if use_nwd:
         enable_nwd_loss(nwd_weight=nwd_weight, nwd_constant=nwd_constant)
+        os.environ["BUBBLE_NWD_WEIGHT"] = str(nwd_weight)
+        os.environ["BUBBLE_NWD_CONSTANT"] = str(nwd_constant)
 
     from ultralytics import YOLO
 
@@ -696,7 +708,8 @@ def main() -> int:
 
     else:
         model = YOLO(model_path)
-        results = model.train(**train_args)
+        trainer_cls = BubbleNWDDetectionTrainer if use_nwd else BubbleDetectionTrainer
+        results = model.train(trainer=trainer_cls, **train_args)
         run_dir = Path(getattr(results, "save_dir", run_dir))
         best_pt = run_dir / "weights" / "best.pt"
         last_pt = run_dir / "weights" / "last.pt"
