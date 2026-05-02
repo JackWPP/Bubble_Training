@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baseline-fix", action="store_true", help="Run B0,B1,B2 only")
     parser.add_argument("--compressed", action="store_true", help="Run E0,E1,E3,E5 only")
     parser.add_argument("--balanced-v3", action="store_true", help="Run BV2S_CTL,BV3S_A,BV3S_B,BV3S_768")
+    parser.add_argument(
+        "--paper-v4-ablation",
+        action="store_true",
+        help="Run PV4S_768_LR0010,PV4E1_SSB_P3,PV4E2_GLRB_P3,PV4E3_SSB_GLRB_P3",
+    )
     parser.add_argument("--resume-missing", action="store_true", help="Skip experiments that already have best.pt")
     parser.add_argument("--exist-ok", action="store_true")
     parser.add_argument("--keep-going", action="store_true")
@@ -53,8 +58,13 @@ def main() -> int:
         exp_ids = ["E0", "E1", "E3", "E5"]
     elif args.balanced_v3:
         exp_ids = ["BV2S_CTL", "BV3S_A", "BV3S_B", "BV3S_768"]
+    elif args.paper_v4_ablation:
+        exp_ids = ["PV4S_768_LR0010", "PV4E1_SSB_P3", "PV4E2_GLRB_P3", "PV4E3_SSB_GLRB_P3"]
     else:
         exp_ids = ["B0", "B1", "E0", "E1", "E2", "E3", "E4", "E5"]
+
+    if args.paper_v4_ablation and Path(args.project).name != "bubble_paper_v4":
+        raise ValueError("--paper-v4-ablation must use --project runs/bubble_paper_v4")
 
     for exp_id in exp_ids:
         name = matrix[exp_id]["name"]

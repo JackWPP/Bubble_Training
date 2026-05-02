@@ -88,6 +88,24 @@ experiments:
     modules: paper-v4-imgsz896-lr0008-e35
     use_nwd: false
     train_config: configs/train/paper_v4_896_lr0008_e35.yaml
+  PV4E1_SSB_P3:
+    name: PV4E1_SSB_P3_yolo11s_paper_v4
+    model: configs/models/bubble_yolo11s_ssb_p3.yaml
+    modules: paper-v4-SSBRefine-P3
+    use_nwd: false
+    train_config: configs/train/paper_v4_768_lr0010.yaml
+  PV4E2_GLRB_P3:
+    name: PV4E2_GLRB_P3_yolo11s_paper_v4
+    model: configs/models/bubble_yolo11s_glrb_p3.yaml
+    modules: paper-v4-GLRB-P3
+    use_nwd: false
+    train_config: configs/train/paper_v4_768_lr0010.yaml
+  PV4E3_SSB_GLRB_P3:
+    name: PV4E3_SSB_GLRB_P3_yolo11s_paper_v4
+    model: configs/models/bubble_yolo11s_ssb_glrb_p3.yaml
+    modules: paper-v4-SSBRefine-P3+GLRB-P3
+    use_nwd: false
+    train_config: configs/train/paper_v4_768_lr0010.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt

@@ -57,7 +57,12 @@ def metric(metrics: dict[str, Any], key: str) -> Any:
 
 def collect(project: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for run_dir in sorted(path for path in project.iterdir() if path.is_dir() and path.name[:1] in {"B", "E"}):
+    run_dirs = sorted(
+        path
+        for path in project.iterdir()
+        if path.is_dir() and ((path / "summary.json").exists() or (path / "results.csv").exists())
+    )
+    for run_dir in run_dirs:
         summary = read_summary(run_dir)
         best = read_best_row(run_dir / "results.csv")
         last = read_last_row(run_dir / "results.csv")
