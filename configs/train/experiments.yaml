@@ -76,6 +76,18 @@ experiments:
     modules: paper-v4-imgsz768-lr0010
     use_nwd: false
     train_config: configs/train/paper_v4_768_lr0010.yaml
+  PV4S_832_LR0010_E35:
+    name: PV4S_832_LR0010_E35_seed42
+    model: yolo11s.pt
+    modules: paper-v4-imgsz832-lr0010-e35
+    use_nwd: false
+    train_config: configs/train/paper_v4_832_lr0010_e35.yaml
+  PV4S_896_LR0008_E35:
+    name: PV4S_896_LR0008_E35_seed42
+    model: yolo11s.pt
+    modules: paper-v4-imgsz896-lr0008-e35
+    use_nwd: false
+    train_config: configs/train/paper_v4_896_lr0008_e35.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt
