@@ -375,7 +375,9 @@ def curve_diagnostics(run_dir: Path) -> dict[str, Any]:
                 bad_values += 1
 
     best_row = max(rows, key=lambda row: float_value(row, METRIC_KEYS["map50"]))
+    first_row = rows[0]
     last_row = rows[-1]
+    first_map50 = float_value(first_row, METRIC_KEYS["map50"])
     best_map50 = float_value(best_row, METRIC_KEYS["map50"])
     last_map50 = float_value(last_row, METRIC_KEYS["map50"])
     best_val_box = float_value(best_row, LOSS_KEYS["val_box"])
@@ -385,17 +387,25 @@ def curve_diagnostics(run_dir: Path) -> dict[str, Any]:
     return {
         "rows": len(rows),
         "bad_values": bad_values,
+        "first_epoch": int(float_value(first_row, "epoch")),
         "best_epoch": int(float_value(best_row, "epoch")),
         "last_epoch": int(float_value(last_row, "epoch")),
+        "first_map50": first_map50,
         "best_map50": best_map50,
         "last_map50": last_map50,
+        "map50_gain_first_to_best": best_map50 - first_map50,
         "map50_drop_best_to_last": best_map50 - last_map50,
+        "first_precision": float_value(first_row, METRIC_KEYS["precision"]),
+        "first_recall": float_value(first_row, METRIC_KEYS["recall"]),
+        "first_map5095": float_value(first_row, METRIC_KEYS["map5095"]),
         "best_precision": float_value(best_row, METRIC_KEYS["precision"]),
         "best_recall": float_value(best_row, METRIC_KEYS["recall"]),
         "best_map5095": float_value(best_row, METRIC_KEYS["map5095"]),
+        "first_val_dfl_loss": float_value(first_row, LOSS_KEYS["val_dfl"]),
         "best_val_box_loss": best_val_box,
         "last_val_box_loss": last_val_box,
         "val_box_loss_delta_best_to_last": last_val_box - best_val_box,
+        "first_train_dfl_loss": float_value(first_row, LOSS_KEYS["train_dfl"]),
         "best_train_box_loss": best_train_box,
         "last_train_box_loss": last_train_box,
         "train_box_loss_delta_best_to_last": last_train_box - best_train_box,

@@ -52,12 +52,12 @@ def main() -> int:
         "",
         "## Experiment Summary",
         "",
-        "| Exp | Model | Modules | Sel P | Sel R | Sel mAP@50 | Main Test mAP@50 | OOD Test mAP@50 | mAP@50-95 diag | Selector | Mode | Best Conf/F1 | Curve Drop | Best Epoch | Last Epoch |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: |",
+        "| Exp | Model | Modules | Sel P | Sel R | Sel mAP@50 | Main Test mAP@50 | OOD Test mAP@50 | mAP@50-95 diag | Selector | Mode | Best Conf/F1 | First mAP@50 | Gain | Curve Drop | Best Epoch | Last Epoch |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            "| {exp_id} | {model} | {modules} | {selector_precision} | {selector_recall} | {selector_map50} | {main_test_map50} | {ood_test_map50} | {selector_map5095} | {selector_label} | {selector_eval_mode} | {best_conf} / {best_conf_f1} | {curve_map50_drop} | {best_epoch} | {last_epoch} |".format(
+            "| {exp_id} | {model} | {modules} | {selector_precision} | {selector_recall} | {selector_map50} | {main_test_map50} | {ood_test_map50} | {selector_map5095} | {selector_label} | {selector_eval_mode} | {best_conf} / {best_conf_f1} | {curve_first_map50} | {curve_map50_gain} | {curve_map50_drop} | {best_epoch} | {last_epoch} |".format(
                 exp_id=row.get("exp_id", ""),
                 model=Path(str(row.get("model", ""))).name,
                 modules=row.get("modules", ""),
@@ -71,6 +71,8 @@ def main() -> int:
                 selector_eval_mode=row.get("selector_eval_mode", ""),
                 best_conf=fmt(row.get("best_conf", "")),
                 best_conf_f1=fmt(row.get("best_conf_f1", "")),
+                curve_first_map50=fmt(row.get("curve_first_map50", "")),
+                curve_map50_gain=fmt(row.get("curve_map50_gain_first_to_best", "")),
                 curve_map50_drop=fmt(row.get("curve_map50_drop", "")),
                 best_epoch=row.get("best_epoch", ""),
                 last_epoch=row.get("last_epoch", ""),
