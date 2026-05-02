@@ -192,6 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-val", action="store_true")
     parser.add_argument("--skip-predict", action="store_true")
     parser.add_argument("--eval-only", action="store_true", help="Evaluate model without training")
+    parser.add_argument("--postprocess-only", action="store_true", help="Select/evaluate an existing run without training")
     return parser
 
 
@@ -222,6 +223,22 @@ def val_model(
     return metric_dict(model.val(**val_args))
 
 
+def optional_val_model(
+    model_ref: str,
+    data: str,
+    split: str,
+    imgsz: int,
+    device: Any,
+    project: Path,
+    name: str,
+) -> dict[str, Any]:
+    try:
+        return val_model(model_ref, data, split, imgsz, device, project, name)
+    except FileNotFoundError as exc:
+        print(f"[warn] skipped optional validation {name}: {exc}", file=sys.stderr)
+        return {"skipped": True, "error": str(exc)}
+
+
 def eval_weight_bundle(
     weight_ref: str,
     data_path: str,
@@ -241,10 +258,10 @@ def eval_weight_bundle(
         "main_test_metrics": val_model(
             weight_ref, data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_main_test"
         ),
-        "ood_val_metrics": val_model(
+        "ood_val_metrics": optional_val_model(
             weight_ref, official_data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_ood_val"
         ),
-        "ood_test_metrics": val_model(
+        "ood_test_metrics": optional_val_model(
             weight_ref, official_data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_ood_test"
         ),
     }
@@ -434,10 +451,10 @@ def attach_final_evaluations(
     selected["main_test_metrics"] = val_model(
         weight, data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_main_test"
     )
-    selected["ood_val_metrics"] = val_model(
+    selected["ood_val_metrics"] = optional_val_model(
         weight, official_data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_ood_val"
     )
-    selected["ood_test_metrics"] = val_model(
+    selected["ood_test_metrics"] = optional_val_model(
         weight, official_data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_ood_test"
     )
     selected["official_val_metrics"] = selected["ood_val_metrics"]
@@ -533,6 +550,9 @@ def main() -> int:
     from ultralytics import YOLO
 
     eval_only = bool(args.eval_only or exp.get("eval_only", False))
+    postprocess_only = bool(args.postprocess_only)
+    if eval_only and postprocess_only:
+        raise ValueError("--eval-only and --postprocess-only are mutually exclusive")
     if not args.no_pretrained and model_path.endswith((".yaml", ".yml")):
         effective_pretrained_weight = resolve_model_path(args.weights)
         train_args["pretrained"] = effective_pretrained_weight
@@ -594,6 +614,86 @@ def main() -> int:
                 float(config.get("selector_precision_min", 0.75)),
                 float(config.get("selector_recall_min", 0.72)),
             )
+    elif postprocess_only:
+        if not run_dir.exists():
+            raise FileNotFoundError(f"Cannot postprocess missing run directory: {run_dir}")
+        train_curve = curve_diagnostics(run_dir)
+        if train_curve:
+            print(
+                "[curve] best_epoch={best} last_epoch={last} map50_drop={drop:.4f} bad_values={bad}".format(
+                    best=train_curve.get("best_epoch", ""),
+                    last=train_curve.get("last_epoch", ""),
+                    drop=float(train_curve.get("map50_drop_best_to_last", 0.0) or 0.0),
+                    bad=train_curve.get("bad_values", ""),
+                )
+            )
+
+        if not args.skip_val:
+            if selector_eval_mode == "online":
+                map50_selected = select_online_checkpoint(
+                    run_dir,
+                    float(config.get("selector_precision_min", 0.75)),
+                    float(config.get("selector_recall_min", 0.72)),
+                )
+                map50_selected = attach_final_evaluations(
+                    map50_selected,
+                    data_path,
+                    official_eval_data_path,
+                    int(config.get("imgsz", 640)),
+                    train_args.get("device"),
+                    Path(project),
+                    run_name,
+                )
+                selected_weight = map50_selected.get("weight", str(best_pt if best_pt.exists() else last_pt))
+                preferred = map50_selected
+                if selected_weight:
+                    checkpoint_metrics[map50_selected.get("label", "selected")] = preferred
+            else:
+                eval_weights = checkpoint_candidates(run_dir, model_path)
+                for label, weight_ref in eval_weights.items():
+                    checkpoint_metrics[label] = eval_weight_bundle(
+                        weight_ref,
+                        data_path,
+                        official_eval_data_path,
+                        int(config.get("imgsz", 640)),
+                        train_args.get("device"),
+                        Path(project),
+                        run_name,
+                        label,
+                    )
+                map50_selected = select_map50_checkpoint(
+                    checkpoint_metrics,
+                    float(config.get("selector_precision_min", 0.75)),
+                    float(config.get("selector_recall_min", 0.72)),
+                )
+                selected_label = map50_selected.get("label", "")
+                selected_bundle = checkpoint_metrics.get(selected_label, {}) if selected_label else {}
+                preferred = selected_bundle or checkpoint_metrics.get("best") or next(iter(checkpoint_metrics.values()), {})
+                selected_weight = preferred.get("weight", next(iter(eval_weights.values())))
+
+            selection_val_metrics = preferred.get("selection_val_metrics", {})
+            main_test_metrics = preferred.get("main_test_metrics", {})
+            ood_val_metrics = preferred.get("ood_val_metrics", preferred.get("official_val_metrics", {}))
+            ood_test_metrics = preferred.get("ood_test_metrics", preferred.get("official_test_metrics", {}))
+            official_val_metrics = ood_val_metrics
+            official_test_metrics = ood_test_metrics
+            selected_path = run_dir / "weights" / "map50_selected.pt"
+            if selected_weight and Path(selected_weight).exists() and Path(selected_weight) != selected_path:
+                shutil.copy2(selected_weight, selected_path)
+                map50_selected["copied_weight"] = str(selected_path)
+            conf_values = [float(value) for value in config.get("conf_sweep", [])]
+            conf_sweep = run_conf_sweep(
+                selected_weight,
+                data_path,
+                int(config.get("imgsz", 640)),
+                train_args.get("device"),
+                Path(project),
+                run_name,
+                conf_values,
+            )
+            eval_model = YOLO(selected_weight)
+            info = model_info_dict(eval_model)
+
     else:
         model = YOLO(model_path)
         results = model.train(**train_args)

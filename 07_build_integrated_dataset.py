@@ -1098,8 +1098,7 @@ def manifest_to_json(manifest: list[OutputSample]) -> list[dict]:
 
 
 def write_yaml(output_dir: Path) -> None:
-    yaml_text = f"""path: {output_dir.as_posix()}
-train: train/images
+    yaml_text = f"""train: train/images
 val: val/images
 test: test/images
 
