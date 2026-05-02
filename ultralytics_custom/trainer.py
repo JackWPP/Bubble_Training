@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from ultralytics.models.yolo.detect.train import DetectionTrainer
+from ultralytics.nn.tasks import DetectionModel
+from ultralytics.utils import RANK
 
 from . import register_bubble_modules
 from .bubble_loss import enable_nwd_loss
+from .weight_transfer import load_bubble_remapped_weights, supports_bubble_remap
+
+
+def _remap_source(weights, pretrained):
+    if isinstance(pretrained, (str, Path)) and str(pretrained).endswith(".pt"):
+        return pretrained
+    return weights
 
 
 class BubbleDetectionTrainer(DetectionTrainer):
@@ -19,7 +29,20 @@ class BubbleDetectionTrainer(DetectionTrainer):
 
     def get_model(self, *args, **kwargs):
         register_bubble_modules()
-        return super().get_model(*args, **kwargs)
+        cfg = kwargs.get("cfg", args[0] if len(args) > 0 else None)
+        weights = kwargs.get("weights", args[1] if len(args) > 1 else None)
+        verbose = kwargs.get("verbose", args[2] if len(args) > 2 else True)
+        model = DetectionModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
+        if weights:
+            if supports_bubble_remap(model):
+                load_bubble_remapped_weights(
+                    model,
+                    _remap_source(weights, getattr(self.args, "pretrained", None)),
+                    verbose=verbose and RANK == -1,
+                )
+            else:
+                model.load(weights)
+        return model
 
 
 class BubbleNWDDetectionTrainer(BubbleDetectionTrainer):

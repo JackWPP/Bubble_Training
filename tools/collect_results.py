@@ -55,14 +55,18 @@ def metric(metrics: dict[str, Any], key: str) -> Any:
     return metrics.get(METRIC_KEYS[key], "")
 
 
-def collect(project: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    run_dirs = sorted(
+def iter_run_dirs(project: Path, recursive: bool) -> list[Path]:
+    candidates = project.rglob("*") if recursive else project.iterdir()
+    return sorted(
         path
-        for path in project.iterdir()
+        for path in candidates
         if path.is_dir() and ((path / "summary.json").exists() or (path / "results.csv").exists())
     )
-    for run_dir in run_dirs:
+
+
+def collect(project: Path, recursive: bool = False) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for run_dir in iter_run_dirs(project, recursive):
         summary = read_summary(run_dir)
         best = read_best_row(run_dir / "results.csv")
         last = read_last_row(run_dir / "results.csv")
@@ -151,11 +155,12 @@ def main() -> int:
     parser.add_argument("--project", type=Path, default=ROOT / "runs" / "bubble")
     parser.add_argument("--out-csv", type=Path)
     parser.add_argument("--out-json", type=Path)
+    parser.add_argument("--recursive", action="store_true", help="Collect runs below project recursively")
     args = parser.parse_args()
 
     project = args.project if args.project.is_absolute() else ROOT / args.project
     project.mkdir(parents=True, exist_ok=True)
-    rows = collect(project)
+    rows = collect(project, recursive=args.recursive)
     out_csv = args.out_csv or project / "experiment_summary.csv"
     out_json = args.out_json or project / "experiment_summary.json"
     fieldnames = [
