@@ -76,6 +76,7 @@ def collect(project: Path) -> list[dict[str, Any]]:
         checkpoint_metrics = summary.get("checkpoint_metrics", {})
         best_official_test = checkpoint_metrics.get("best", {}).get("ood_test_metrics", checkpoint_metrics.get("best", {}).get("official_test_metrics", {}))
         last_official_test = checkpoint_metrics.get("last", {}).get("ood_test_metrics", checkpoint_metrics.get("last", {}).get("official_test_metrics", {}))
+        train_curve = summary.get("train_curve", {}) or {}
         row = {
             "exp_id": summary.get("exp_id", run_dir.name.split("_", 1)[0]),
             "name": summary.get("name", run_dir.name),
@@ -93,6 +94,8 @@ def collect(project: Path) -> list[dict[str, Any]]:
             "selection_map5095": metric(selection, "map5095") or best.get(METRIC_KEYS["map5095"], ""),
             "selector_label": map50_selected.get("label", ""),
             "selector_selected_from": map50_selected.get("selected_from", ""),
+            "selector_eval_mode": summary.get("selector_eval_mode", ""),
+            "selector_selection_source": map50_selected.get("selection_source", ""),
             "selector_precision": metric(selector_selection, "precision"),
             "selector_recall": metric(selector_selection, "recall"),
             "selector_map50": metric(selector_selection, "map50"),
@@ -115,6 +118,12 @@ def collect(project: Path) -> list[dict[str, Any]]:
             "best_conf_f1": conf_best.get("f1", ""),
             "best_conf_precision": conf_best.get("precision", ""),
             "best_conf_recall": conf_best.get("recall", ""),
+            "curve_best_epoch": train_curve.get("best_epoch", ""),
+            "curve_last_epoch": train_curve.get("last_epoch", ""),
+            "curve_map50_drop": train_curve.get("map50_drop_best_to_last", ""),
+            "curve_bad_values": train_curve.get("bad_values", ""),
+            "curve_train_loss_down": train_curve.get("train_loss_continued_down", ""),
+            "curve_val_loss_improved_after_best": train_curve.get("val_box_loss_improved_after_best", ""),
             "precision": metric(selector_selection, "precision") or best.get(METRIC_KEYS["precision"], ""),
             "recall": metric(selector_selection, "recall") or best.get(METRIC_KEYS["recall"], ""),
             "map50": metric(selector_selection, "map50") or best.get(METRIC_KEYS["map50"], ""),
@@ -163,6 +172,8 @@ def main() -> int:
         "selection_map5095",
         "selector_label",
         "selector_selected_from",
+        "selector_eval_mode",
+        "selector_selection_source",
         "selector_precision",
         "selector_recall",
         "selector_map50",
@@ -185,6 +196,12 @@ def main() -> int:
         "best_conf_f1",
         "best_conf_precision",
         "best_conf_recall",
+        "curve_best_epoch",
+        "curve_last_epoch",
+        "curve_map50_drop",
+        "curve_bad_values",
+        "curve_train_loss_down",
+        "curve_val_loss_improved_after_best",
         "best_epoch",
         "last_epoch",
         "run_dir",

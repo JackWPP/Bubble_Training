@@ -1,6 +1,6 @@
 {
-  "last_turn_at": "2026-05-01T18:55:21.560Z",
-  "turn_count": 3,
-  "last_progress_at": "2026-05-01T18:55:21.560Z",
-  "last_agent_output": "已实现 V3 计划并跑完轻量验证。\n\n主要改动：\n- `07_build_integrated_dataset.py` 增加 `balanced-v3`、60/20/20 split、`--v3-pr"
+  "last_turn_at": "2026-05-02T02:59:30.152Z",
+  "turn_count": 8,
+  "last_progress_at": "2026-05-02T02:59:30.152Z",
+  "last_agent_output": "已实现这轮计划。核心变化是 `scripts/train_experiment.py` 现在支持 `selector_eval_mode: online|offline`：新 FAST/LOWLR 实"
 }

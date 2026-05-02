@@ -9,7 +9,8 @@ __pycache__/
 .venv/
 venv/
 env/
-
+.claude
+.omx
 # Local datasets and generated YOLO exports
 Dataset/
 dataset/
@@ -62,3 +63,10 @@ best*/
 !docs/**/*.png
 !docs/**/*.jpg
 !docs/**/*.jpeg
+.claude/settings.local.json
+.omx/metrics.json
+.omx/logs/tmux-hook-2026-05-01.jsonl
+.omx/logs/turns-2026-05-01.jsonl
+.omx/state/hud-state.json
+.omx/state/notify-hook-state.json
+.omx/state/tmux-hook-state.json

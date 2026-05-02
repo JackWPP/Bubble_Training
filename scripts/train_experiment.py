@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -35,6 +36,9 @@ TRAIN_KEYS = {
     "momentum",
     "weight_decay",
     "cos_lr",
+    "warmup_epochs",
+    "warmup_momentum",
+    "warmup_bias_lr",
     "close_mosaic",
     "save_period",
     "plots",
@@ -59,6 +63,15 @@ METRIC_KEYS = {
     "recall": "metrics/recall(B)",
     "map50": "metrics/mAP50(B)",
     "map5095": "metrics/mAP50-95(B)",
+}
+
+LOSS_KEYS = {
+    "train_box": "train/box_loss",
+    "val_box": "val/box_loss",
+    "train_cls": "train/cls_loss",
+    "val_cls": "val/cls_loss",
+    "train_dfl": "train/dfl_loss",
+    "val_dfl": "val/dfl_loss",
 }
 
 
@@ -115,6 +128,13 @@ def metric_value(metrics: dict[str, Any], key: str) -> float:
         return 0.0
 
 
+def float_value(row: dict[str, Any], key: str, default: float = 0.0) -> float:
+    try:
+        return float(row.get(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 def model_info_dict(model: Any) -> dict[str, Any]:
     torch_model = getattr(model, "model", None)
     if torch_model is not None:
@@ -161,6 +181,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch", type=int)
     parser.add_argument("--workers", type=int)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--selector-eval-mode", choices=("online", "offline"))
     parser.add_argument("--use-nwd", action="store_true")
     parser.add_argument("--nwd-weight", type=float)
     parser.add_argument("--nwd-constant", type=float)
@@ -247,6 +269,115 @@ def checkpoint_candidates(run_dir: Path, model_path: str) -> dict[str, str]:
     return candidates
 
 
+def read_results_rows(run_dir: Path) -> list[dict[str, str]]:
+    results_csv = run_dir / "results.csv"
+    if not results_csv.exists():
+        return []
+    with results_csv.open("r", encoding="utf-8") as f:
+        return [{k.strip(): v.strip() for k, v in row.items()} for row in csv.DictReader(f)]
+
+
+def metrics_from_results_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {metric_key: float_value(row, metric_key) for metric_key in METRIC_KEYS.values()}
+
+
+def epoch_label_from_row(row: dict[str, Any]) -> str:
+    epoch = int(float_value(row, "epoch", 0.0))
+    return f"epoch{max(epoch - 1, 0)}"
+
+
+def select_online_checkpoint(
+    run_dir: Path,
+    precision_min: float,
+    recall_min: float,
+) -> dict[str, Any]:
+    rows = read_results_rows(run_dir)
+    if not rows:
+        return {}
+
+    viable: list[tuple[tuple[float, float, float], dict[str, Any]]] = []
+    fallback: list[tuple[tuple[float, float, float], dict[str, Any]]] = []
+    for row in rows:
+        metrics = metrics_from_results_row(row)
+        precision = metric_value(metrics, "precision")
+        recall = metric_value(metrics, "recall")
+        map50 = metric_value(metrics, "map50")
+        map5095 = metric_value(metrics, "map5095")
+        score = (map50, min(precision, recall), map5095)
+        target = viable if precision >= precision_min and recall >= recall_min else fallback
+        target.append((score, row))
+
+    selected_from = "online_thresholded" if viable else "online_fallback"
+    pool = viable or fallback
+    score, row = max(pool, key=lambda item: item[0])
+    label = epoch_label_from_row(row)
+    weight = run_dir / "weights" / f"{label}.pt"
+    if not weight.exists():
+        best = run_dir / "weights" / "best.pt"
+        last = run_dir / "weights" / "last.pt"
+        weight = best if best.exists() else last
+        label = weight.stem if weight.exists() else label
+    metrics = metrics_from_results_row(row)
+    return {
+        "label": label,
+        "weight": str(weight) if weight.exists() else "",
+        "selected_from": selected_from,
+        "selection_source": "results.csv",
+        "online_results_epoch": int(float_value(row, "epoch", 0.0)),
+        "precision_min": precision_min,
+        "recall_min": recall_min,
+        "score": {
+            "map50": score[0],
+            "min_precision_recall": score[1],
+            "map5095": score[2],
+        },
+        "selection_val_metrics": metrics,
+    }
+
+
+def curve_diagnostics(run_dir: Path) -> dict[str, Any]:
+    rows = read_results_rows(run_dir)
+    if not rows:
+        return {}
+
+    metric_columns = list(METRIC_KEYS.values()) + list(LOSS_KEYS.values())
+    bad_values = 0
+    for row in rows:
+        for column in metric_columns:
+            value = str(row.get(column, ""))
+            if not value or value.lower() in {"nan", "inf", "-inf"}:
+                bad_values += 1
+
+    best_row = max(rows, key=lambda row: float_value(row, METRIC_KEYS["map50"]))
+    last_row = rows[-1]
+    best_map50 = float_value(best_row, METRIC_KEYS["map50"])
+    last_map50 = float_value(last_row, METRIC_KEYS["map50"])
+    best_val_box = float_value(best_row, LOSS_KEYS["val_box"])
+    last_val_box = float_value(last_row, LOSS_KEYS["val_box"])
+    best_train_box = float_value(best_row, LOSS_KEYS["train_box"])
+    last_train_box = float_value(last_row, LOSS_KEYS["train_box"])
+    return {
+        "rows": len(rows),
+        "bad_values": bad_values,
+        "best_epoch": int(float_value(best_row, "epoch")),
+        "last_epoch": int(float_value(last_row, "epoch")),
+        "best_map50": best_map50,
+        "last_map50": last_map50,
+        "map50_drop_best_to_last": best_map50 - last_map50,
+        "best_precision": float_value(best_row, METRIC_KEYS["precision"]),
+        "best_recall": float_value(best_row, METRIC_KEYS["recall"]),
+        "best_map5095": float_value(best_row, METRIC_KEYS["map5095"]),
+        "best_val_box_loss": best_val_box,
+        "last_val_box_loss": last_val_box,
+        "val_box_loss_delta_best_to_last": last_val_box - best_val_box,
+        "best_train_box_loss": best_train_box,
+        "last_train_box_loss": last_train_box,
+        "train_box_loss_delta_best_to_last": last_train_box - best_train_box,
+        "train_loss_continued_down": last_train_box < best_train_box,
+        "val_box_loss_improved_after_best": last_val_box < best_val_box,
+    }
+
+
 def select_map50_checkpoint(
     checkpoint_metrics: dict[str, Any],
     precision_min: float,
@@ -285,6 +416,33 @@ def select_map50_checkpoint(
         "ood_val_metrics": bundle.get("ood_val_metrics", bundle.get("official_val_metrics", {})),
         "ood_test_metrics": bundle.get("ood_test_metrics", bundle.get("official_test_metrics", {})),
     }
+
+
+def attach_final_evaluations(
+    selected: dict[str, Any],
+    data_path: str,
+    official_data_path: str,
+    imgsz: int,
+    device: Any,
+    project: Path,
+    run_name: str,
+) -> dict[str, Any]:
+    weight = selected.get("weight", "")
+    label = selected.get("label", "selected")
+    if not weight:
+        return selected
+    selected["main_test_metrics"] = val_model(
+        weight, data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_main_test"
+    )
+    selected["ood_val_metrics"] = val_model(
+        weight, official_data_path, "val", imgsz, device, project / "validation", f"{run_name}_{label}_ood_val"
+    )
+    selected["ood_test_metrics"] = val_model(
+        weight, official_data_path, "test", imgsz, device, project / "validation", f"{run_name}_{label}_ood_test"
+    )
+    selected["official_val_metrics"] = selected["ood_val_metrics"]
+    selected["official_test_metrics"] = selected["ood_test_metrics"]
+    return selected
 
 
 def run_conf_sweep(
@@ -353,12 +511,14 @@ def main() -> int:
         "resume": args.resume,
         "exist_ok": args.exist_ok,
     }
-    for key in ("device", "epochs", "batch", "workers"):
+    for key in ("device", "epochs", "batch", "workers", "seed"):
         value = getattr(args, key)
         if value is not None:
             config[key] = value
     if args.device:
         config["device"] = args.device
+    if args.selector_eval_mode:
+        config["selector_eval_mode"] = args.selector_eval_mode
 
     train_args = {key: config[key] for key in TRAIN_KEYS if key in config}
     train_args.update(overrides)
@@ -402,6 +562,10 @@ def main() -> int:
     map50_selected: dict[str, Any] = {}
     conf_sweep: dict[str, Any] = {}
     info: dict[str, Any] = {}
+    train_curve: dict[str, Any] = {}
+    selector_eval_mode = str(config.get("selector_eval_mode", "offline")).lower()
+    if selector_eval_mode not in {"online", "offline"}:
+        raise ValueError(f"selector_eval_mode must be 'online' or 'offline', got {selector_eval_mode!r}")
 
     if eval_only:
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -437,34 +601,64 @@ def main() -> int:
         best_pt = run_dir / "weights" / "best.pt"
         last_pt = run_dir / "weights" / "last.pt"
         eval_weights = checkpoint_candidates(run_dir, model_path)
+        train_curve = curve_diagnostics(run_dir)
+        if train_curve:
+            print(
+                "[curve] best_epoch={best} last_epoch={last} map50_drop={drop:.4f} bad_values={bad}".format(
+                    best=train_curve.get("best_epoch", ""),
+                    last=train_curve.get("last_epoch", ""),
+                    drop=float(train_curve.get("map50_drop_best_to_last", 0.0) or 0.0),
+                    bad=train_curve.get("bad_values", ""),
+                )
+            )
 
         if not args.skip_val:
-            for label, weight_ref in eval_weights.items():
-                checkpoint_metrics[label] = eval_weight_bundle(
-                    weight_ref,
+            if selector_eval_mode == "online":
+                map50_selected = select_online_checkpoint(
+                    run_dir,
+                    float(config.get("selector_precision_min", 0.75)),
+                    float(config.get("selector_recall_min", 0.72)),
+                )
+                map50_selected = attach_final_evaluations(
+                    map50_selected,
                     data_path,
                     official_eval_data_path,
                     int(config.get("imgsz", 640)),
                     train_args.get("device"),
                     Path(project),
                     run_name,
-                    label,
                 )
-            map50_selected = select_map50_checkpoint(
-                checkpoint_metrics,
-                float(config.get("selector_precision_min", 0.75)),
-                float(config.get("selector_recall_min", 0.72)),
-            )
-            selected_label = map50_selected.get("label", "")
-            selected_bundle = checkpoint_metrics.get(selected_label, {}) if selected_label else {}
-            preferred = selected_bundle or checkpoint_metrics.get("best") or next(iter(checkpoint_metrics.values()), {})
+                selected_weight = map50_selected.get("weight", str(best_pt if best_pt.exists() else last_pt))
+                preferred = map50_selected
+                if selected_weight:
+                    checkpoint_metrics[map50_selected.get("label", "selected")] = preferred
+            else:
+                for label, weight_ref in eval_weights.items():
+                    checkpoint_metrics[label] = eval_weight_bundle(
+                        weight_ref,
+                        data_path,
+                        official_eval_data_path,
+                        int(config.get("imgsz", 640)),
+                        train_args.get("device"),
+                        Path(project),
+                        run_name,
+                        label,
+                    )
+                map50_selected = select_map50_checkpoint(
+                    checkpoint_metrics,
+                    float(config.get("selector_precision_min", 0.75)),
+                    float(config.get("selector_recall_min", 0.72)),
+                )
+                selected_label = map50_selected.get("label", "")
+                selected_bundle = checkpoint_metrics.get(selected_label, {}) if selected_label else {}
+                preferred = selected_bundle or checkpoint_metrics.get("best") or next(iter(checkpoint_metrics.values()), {})
+                selected_weight = preferred.get("weight", next(iter(eval_weights.values())))
             selection_val_metrics = preferred.get("selection_val_metrics", {})
             main_test_metrics = preferred.get("main_test_metrics", {})
             ood_val_metrics = preferred.get("ood_val_metrics", preferred.get("official_val_metrics", {}))
             ood_test_metrics = preferred.get("ood_test_metrics", preferred.get("official_test_metrics", {}))
             official_val_metrics = ood_val_metrics
             official_test_metrics = ood_test_metrics
-            selected_weight = preferred.get("weight", next(iter(eval_weights.values())))
             selected_path = run_dir / "weights" / "map50_selected.pt"
             if selected_weight and Path(selected_weight).exists() and Path(selected_weight) != selected_path:
                 shutil.copy2(selected_weight, selected_path)
@@ -525,6 +719,8 @@ def main() -> int:
         "map50_selected": map50_selected,
         "conf_sweep": conf_sweep,
         "checkpoint_metrics": checkpoint_metrics,
+        "selector_eval_mode": selector_eval_mode,
+        "train_curve": train_curve,
         "val_metrics": official_val_metrics,
         "test_metrics": official_test_metrics,
         "train_args": jsonable(train_args),

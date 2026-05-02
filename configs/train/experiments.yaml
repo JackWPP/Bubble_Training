@@ -52,6 +52,18 @@ experiments:
     modules: balanced-v3-imgsz768-map50
     use_nwd: false
     train_config: configs/train/balanced_v3_768.yaml
+  BV3S_768_FAST:
+    name: BV3S_768_FAST_yolo11s_balanced_v3_imgsz768
+    model: yolo11s.pt
+    modules: balanced-v3-imgsz768-online-fast
+    use_nwd: false
+    train_config: configs/train/balanced_v3_768_fast.yaml
+  BV3S_768_LOWLR:
+    name: BV3S_768_LOWLR_yolo11s_balanced_v3_imgsz768
+    model: yolo11s.pt
+    modules: balanced-v3-imgsz768-online-lowlr
+    use_nwd: false
+    train_config: configs/train/balanced_v3_768_lowlr.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt
