@@ -45,6 +45,9 @@ BALANCED_TEST_RATIO = 0.15
 BALANCED_V3_TRAIN_RATIO = 0.60
 BALANCED_V3_VAL_RATIO = 0.20
 BALANCED_V3_TEST_RATIO = 0.20
+PAPER_V4_TRAIN_RATIO = 0.70
+PAPER_V4_VAL_RATIO = 0.15
+PAPER_V4_TEST_RATIO = 0.15
 SEED = 42
 CLASS_ID = 0
 CLASS_NAME = "bubble"
@@ -351,6 +354,55 @@ def split_sources_balanced_v3(items: list[SourceImage], seed: int) -> dict[str, 
             assigned, two_key_toggle = split_source_key_bucket_v3(group_items, rng, two_key_toggle)
             for split, split_items in assigned.items():
                 splits[split].extend(split_items)
+
+    for split in splits:
+        splits[split].sort(key=lambda item: (item.source, item.group_key, item.source_key))
+    return splits
+
+
+def split_sources_paper_v4(items: list[SourceImage], seed: int) -> dict[str, list[SourceImage]]:
+    """Source-key stratified random split for in-distribution paper curves.
+
+    This mode keeps every source_key in exactly one split while allowing
+    source/group overlap across train/val/test. It is intentionally easier than
+    OOD grouped evaluation and is meant for the main training curve benchmark.
+    """
+    rng = random.Random(seed)
+    splits: dict[str, list[SourceImage]] = {"train": [], "val": [], "test": []}
+
+    by_source: dict[str, list[SourceImage]] = defaultdict(list)
+    for item in items:
+        by_source[item.source].append(item)
+
+    for source in sorted(by_source):
+        by_key: dict[str, list[SourceImage]] = defaultdict(list)
+        for item in by_source[source]:
+            by_key[item.source_key].append(item)
+        keys = sorted(by_key)
+        rng.shuffle(keys)
+        n = len(keys)
+        if n == 1:
+            counts = {"train": 1, "val": 0, "test": 0}
+        elif n == 2:
+            counts = {"train": 1, "val": 1, "test": 0}
+        elif n == 3:
+            counts = {"train": 1, "val": 1, "test": 1}
+        else:
+            n_val = max(1, round(n * PAPER_V4_VAL_RATIO))
+            n_test = max(1, round(n * PAPER_V4_TEST_RATIO))
+            if n_val + n_test >= n:
+                n_val = 1
+                n_test = 1
+            counts = {"train": n - n_val - n_test, "val": n_val, "test": n_test}
+
+        split_keys = {
+            "train": keys[: counts["train"]],
+            "val": keys[counts["train"] : counts["train"] + counts["val"]],
+            "test": keys[counts["train"] + counts["val"] :],
+        }
+        for split in ("train", "val", "test"):
+            for key in split_keys[split]:
+                splits[split].extend(by_key[key])
 
     for split in splits:
         splits[split].sort(key=lambda item: (item.source, item.group_key, item.source_key))
@@ -834,6 +886,9 @@ def augment_train(
     elif profile == "balanced-v3":
         geometric_transforms = [("hflip", transform_hflip)]
         copy_paste_count = 0
+    elif profile == "paper-v4":
+        geometric_transforms = [("hflip", transform_hflip)]
+        copy_paste_count = 0
     else:
         geometric_transforms = [
             ("hflip", transform_hflip),
@@ -858,7 +913,9 @@ def augment_train(
                 OutputSample("train", name, f"{Path(name).stem}.txt", base_sample.source, base_sample.source_key, base_sample.group_key, suffix, aug_labels)
             )
 
-        if profile == "balanced-v3":
+        if profile == "paper-v4":
+            photometric = []
+        elif profile == "balanced-v3":
             photometric = [
                 ("photometric_low", transform_photometric_low(image)),
                 ("photometric_high", transform_photometric_high(image)),
@@ -1335,6 +1392,126 @@ def write_balanced_v3_report(output_dir: Path, source_stats: dict, build_stats: 
     Path("DATASET_BALANCED_V3_BUILD_REPORT.md").write_text(report, encoding="utf-8")
 
 
+def write_paper_v4_report(output_dir: Path, source_stats: dict, build_stats: dict, validation: dict) -> None:
+    dataset_rows = []
+    for item in source_stats["datasets"]:
+        common_dims = ", ".join(
+            f"{dim['width']}x{dim['height']}({dim['count']})"
+            for dim in item["common_dimensions"][:3]
+        )
+        dataset_rows.append(
+            f"| {item['name']} | {item['loaded_images']} | {item['valid_boxes']} | "
+            f"{item['missing_images']} | {item['invalid_boxes']} | {common_dims} |"
+        )
+
+    image_counts = validation["images_by_split"]
+    label_counts = validation["labels_by_split"]
+    box_counts = validation["boxes_by_split"]
+    density = build_stats["output_balance"]["split_density"]
+    split_rows = []
+    for split in ["train", "val", "test"]:
+        item = density.get(split, {})
+        split_rows.append(
+            f"| {split} | {image_counts.get(split, 0)} | {label_counts.get(split, 0)} | "
+            f"{box_counts.get(split, 0)} | {item.get('base_images', 0)} | "
+            f"{item.get('augmented_images', 0)} | {item.get('boxes_per_image', 0):.2f} |"
+        )
+
+    source_rows = []
+    for source, item in sorted(build_stats["output_balance"]["source_summary"].items()):
+        source_rows.append(
+            f"| {source} | {item.get('train_images', 0)} | {item.get('val_images', 0)} | "
+            f"{item.get('test_images', 0)} | {item.get('total_images', 0)} | "
+            f"{item.get('total_boxes', 0)} |"
+        )
+
+    group_rows = []
+    for group_key, item in sorted(build_stats["output_balance"]["group_summary"].items()):
+        group_rows.append(
+            f"| {group_key} | {item.get('train_images', 0)} | {item.get('val_images', 0)} | "
+            f"{item.get('test_images', 0)} | {item.get('total_images', 0)} | "
+            f"{item.get('total_boxes', 0)} |"
+        )
+
+    ratio = build_stats.get("split_ratio", {})
+    report = f"""# Bubble YOLO Paper V4 Dataset Build Report
+
+## Benchmark Definition
+
+Paper V4 is a source-key stratified random split / in-distribution benchmark.
+It is designed for the main paper training curves and baseline selection. It is
+not a strict cross-domain or grouped OOD benchmark.
+
+- output directory: `{output_dir.as_posix()}`
+- data config: `{(output_dir / "bubble.yaml").as_posix()}`
+- split mode: `paper-v4`
+- seed: `{build_stats.get("seed")}`
+- target split: train/val/test = {ratio.get("train")}/{ratio.get("val")}/{ratio.get("test")}
+- train augmentation: base samples + horizontal flip only
+- validation/test augmentation: none
+- leakage rule: `source_key` cannot cross split
+- intentional relaxation: `source` and `group_key` may cross split
+- external stress test: report `yolo_dataset_grouped` separately as grouped OOD
+
+## Raw Source Summary
+
+| Source | Valid images | Valid boxes | Missing images | Invalid boxes | Common dimensions |
+| --- | ---: | ---: | ---: | ---: | --- |
+{chr(10).join(dataset_rows)}
+
+Raw categories: `{source_stats['category_names']}`
+
+## Processing Strategy
+
+- Large images are tiled with 640x640 sliding windows, stride 480.
+- Small images are letterboxed into 640x640 while preserving aspect ratio.
+- A retained tile box must keep its center in the tile, have width/height at
+  least 4 px after clipping, and retain at least 40% of the original area.
+- Offline augmentation is train-only and limited to horizontal flip.
+- `manifest.json` records both `source_key` and `group_key` for leakage review.
+
+## Output Summary
+
+| Split | Images | Label files | Boxes | Base samples | Augmented samples | Boxes/image |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(split_rows)}
+
+Box width statistics: `{validation['box_width_px']}`
+
+Box height statistics: `{validation['box_height_px']}`
+
+## Quality Checks
+
+- source_key split leakage count: `{validation['source_split_leakage_count']}`
+- group_key split overlap count: `{validation['group_split_leakage_count']}` (intentional)
+- augmented val/test samples: `{validation['augmented_val_test_count']}`
+- validation result: `{"PASS" if validation["ok"] else "FAIL"}` with `{validation["error_count"]}` errors
+
+## Source Coverage
+
+| Source | Train images | Val images | Test images | Total images | Total boxes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(source_rows)}
+
+## Group Coverage
+
+| group_key | Train images | Val images | Test images | Total images | Total boxes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+{chr(10).join(group_rows)}
+
+## Paper Wording
+
+Use Paper V4 as the source-key stratified in-distribution benchmark for the
+main baseline curves. Do not describe it as a strict OOD split. Use
+`yolo_dataset_grouped` as the external grouped OOD stress test and report it in
+a separate generalization section.
+"""
+    report_path = output_dir / "DATASET_BUILD_REPORT.md"
+    report_path.write_text(report, encoding="utf-8")
+    Path("DATASET_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+    Path("DATASET_PAPER_V4_BUILD_REPORT.md").write_text(report, encoding="utf-8")
+
+
 def summarize_output_balance(manifest: list[OutputSample]) -> dict:
     source_names = sorted({item.source for item in manifest})
     source_summary = {}
@@ -1388,9 +1565,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("yolo_dataset_grouped"))
     parser.add_argument(
         "--split-mode",
-        choices=["group", "source", "balanced-v2", "balanced_v2", "balanced-v3", "balanced_v3"],
+        choices=["group", "source", "balanced-v2", "balanced_v2", "balanced-v3", "balanced_v3", "paper-v4", "paper_v4"],
         default="group",
-        help="group isolates coarse physical sources; source keeps legacy per-image random split; balanced-v2/v3 are main experiment splits.",
+        help="group isolates coarse physical sources; source keeps legacy per-image random split; balanced-v2/v3 are main experiment splits; paper-v4 is an in-distribution curve-friendly split.",
     )
     parser.add_argument(
         "--v3-profile",
@@ -1408,7 +1585,7 @@ def main() -> None:
     output_dir = args.output.resolve()
     ensure_clean_output(output_dir)
 
-    split_aliases = {"balanced_v2": "balanced-v2", "balanced_v3": "balanced-v3"}
+    split_aliases = {"balanced_v2": "balanced-v2", "balanced_v3": "balanced-v3", "paper_v4": "paper-v4"}
     split_mode = split_aliases.get(args.split_mode, args.split_mode)
     sources, source_stats = load_coco_sources(input_dir)
     if split_mode == "group":
@@ -1417,6 +1594,8 @@ def main() -> None:
         splits = split_sources_balanced_v2(sources, args.seed)
     elif split_mode == "balanced-v3":
         splits = split_sources_balanced_v3(sources, args.seed)
+    elif split_mode == "paper-v4":
+        splits = split_sources_paper_v4(sources, args.seed)
     else:
         splits = split_sources(sources, args.seed)
     base_manifest, train_base_images, generation_stats = generate_base_samples(splits, output_dir, args.seed)
@@ -1441,6 +1620,8 @@ def main() -> None:
         split_ratio = {"train": BALANCED_TRAIN_RATIO, "val": BALANCED_VAL_RATIO, "test": BALANCED_TEST_RATIO}
     elif split_mode == "balanced-v3":
         split_ratio = {"train": BALANCED_V3_TRAIN_RATIO, "val": BALANCED_V3_VAL_RATIO, "test": BALANCED_V3_TEST_RATIO}
+    elif split_mode == "paper-v4":
+        split_ratio = {"train": PAPER_V4_TRAIN_RATIO, "val": PAPER_V4_VAL_RATIO, "test": PAPER_V4_TEST_RATIO}
     else:
         split_ratio = {"train": TRAIN_RATIO, "val": VAL_RATIO, "test": TEST_RATIO}
     build_stats = {
@@ -1458,6 +1639,7 @@ def main() -> None:
             "train_base_samples": len(train_base_images),
             "augmented_train_samples": len(augmented_manifest),
             "v3_profile": args.v3_profile if split_mode == "balanced-v3" else "",
+            "profile": "base+hflip" if split_mode == "paper-v4" else split_mode,
         },
         "box_distribution_by_split": summarize_label_dimensions(output_dir),
         "output_balance": summarize_output_balance(manifest),
@@ -1469,6 +1651,8 @@ def main() -> None:
         write_balanced_v2_report(output_dir, source_stats, build_stats, validation)
     elif split_mode == "balanced-v3":
         write_balanced_v3_report(output_dir, source_stats, build_stats, validation)
+    elif split_mode == "paper-v4":
+        write_paper_v4_report(output_dir, source_stats, build_stats, validation)
     else:
         write_grouped_report(output_dir, source_stats, build_stats, validation)
 

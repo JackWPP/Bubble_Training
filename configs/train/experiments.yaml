@@ -64,6 +64,18 @@ experiments:
     modules: balanced-v3-imgsz768-online-lowlr
     use_nwd: false
     train_config: configs/train/balanced_v3_768_lowlr.yaml
+  PV4S_768_LR0015:
+    name: PV4S_768_LR0015_yolo11s_paper_v4
+    model: yolo11s.pt
+    modules: paper-v4-imgsz768-lr0015
+    use_nwd: false
+    train_config: configs/train/paper_v4_768_lr0015.yaml
+  PV4S_768_LR0010:
+    name: PV4S_768_LR0010_yolo11s_paper_v4
+    model: yolo11s.pt
+    modules: paper-v4-imgsz768-lr0010
+    use_nwd: false
+    train_config: configs/train/paper_v4_768_lr0010.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt
