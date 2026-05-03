@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320" font-family="SimSun, 'Noto Sans SC', Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FAFBFC"/>
+      <stop offset="100%" stop-color="#F0F2F5"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="700" height="320" fill="url(#bg-grad)" rx="8"/>
+  <text x="350" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#2C3E50">P3LCRefine — 局部对比度细化模块</text>
+  <text x="350" y="44" text-anchor="middle" font-size="10" fill="#95A5A6">P3 Local Contrast Refinement Module</text>
+
+  <!-- ===== Main Flow ===== -->
+
+  <!-- Input -->
+  <rect x="20" y="130" width="100" height="50" rx="8" fill="#D6EAF8" stroke="#2980B9" stroke-width="2"/>
+  <text x="70" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#2C5F8A">输入 x</text>
+  <text x="70" y="168" text-anchor="middle" font-size="9" fill="#4A90D9">P3 特征图</text>
+
+  <line x1="120" y1="155" x2="140" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- AvgPool -->
+  <rect x="145" y="125" width="105" height="60" rx="8" fill="#FAD7A1" stroke="#E67E22" stroke-width="1.5"/>
+  <text x="197" y="148" text-anchor="middle" font-size="11" font-weight="bold" fill="#D35400">平均池化</text>
+  <text x="197" y="164" text-anchor="middle" font-size="9" fill="#E67E22">AvgPool 3×3</text>
+  <text x="197" y="178" text-anchor="middle" font-size="8" fill="#E67E22">stride=1, pad=1</text>
+
+  <line x1="250" y1="155" x2="270" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Subtract circle -->
+  <circle cx="305" cy="155" r="30" fill="#FDEBD0" stroke="#E67E22" stroke-width="2"/>
+  <text x="305" y="150" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">对比度</text>
+  <text x="305" y="165" text-anchor="middle" font-size="9" fill="#D35400">x − x_avg</text>
+  <text x="305" y="178" text-anchor="middle" font-size="7" fill="#E67E22">(局部高频提取)</text>
+
+  <line x1="335" y1="155" x2="355" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- DWConv -->
+  <rect x="360" y="125" width="120" height="60" rx="8" fill="#FAD7A1" stroke="#E67E22" stroke-width="1.5"/>
+  <text x="420" y="148" text-anchor="middle" font-size="11" font-weight="bold" fill="#D35400">深度可分离卷积</text>
+  <text x="420" y="164" text-anchor="middle" font-size="9" fill="#E67E22">DWConv 3×3</text>
+  <text x="420" y="178" text-anchor="middle" font-size="8" fill="#E67E22">各组独立处理</text>
+
+  <line x1="480" y1="155" x2="500" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Gamma -->
+  <rect x="505" y="130" width="80" height="50" rx="8" fill="#FFF3E0" stroke="#E67E22" stroke-width="2"/>
+  <text x="545" y="150" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">×γ 缩放</text>
+  <text x="545" y="168" text-anchor="middle" font-size="9" fill="#E67E22">γ(初始)=1.0</text>
+
+  <line x1="585" y1="155" x2="605" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Add circle -->
+  <circle cx="635" cy="155" r="22" fill="#ABEBC6" stroke="#27AE60" stroke-width="2"/>
+  <text x="635" y="160" text-anchor="middle" font-size="14" font-weight="bold" fill="#1E8449">+</text>
+
+  <line x1="657" y1="155" x2="675" y2="155" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Output -->
+  <rect x="680" y="130" width="10" height="50" opacity="0"/>
+  <!-- Actually let me put output properly -->
+  <text x="685" y="160" font-size="12" font-weight="bold" fill="#27AE60">y</text>
+
+  <!-- Residual connection (skip path) -->
+  <path d="M70,155 C70,90 635,90 635,133" fill="none" stroke="#95A5A6" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arrow)"/>
+  <text x="310" y="100" text-anchor="middle" font-size="10" fill="#7F8C8D">残差连接 (Residual Connection) — 保持预训练特征不被破坏</text>
+
+  <!-- ===== Formula Box ===== -->
+  <rect x="20" y="210" width="660" height="85" rx="8" fill="#F8F9FA" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="350" y="232" text-anchor="middle" font-size="12" font-weight="bold" fill="#2C3E50">数学表达</text>
+  <text x="350" y="255" text-anchor="middle" font-size="13" fill="#333" font-family="monospace">P3LCRefine(x) = x + γ · DWConv₃×₃( x − AvgPool₃×₃(x) )</text>
+  <text x="350" y="278" text-anchor="middle" font-size="10" fill="#7F8C8D">γ 为可学习标量参数（初始值 1.0），DWConv 权重初始化为近零（恒等映射初始化策略）</text>
+
+  <!-- ===== Key numbers bar ===== -->
+  <rect x="20" y="300" width="660" height="2" fill="#ECF0F1"/>
+</svg>

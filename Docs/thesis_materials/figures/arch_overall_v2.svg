@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 780" font-family="SimSun, 'Noto Sans SC', Arial, sans-serif">
+  <defs>
+    <marker id="arr-b" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <path d="M0,0 L6,2.5 L0,5 Z" fill="#4A90D9"/>
+    </marker>
+    <marker id="arr-g" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <path d="M0,0 L6,2.5 L0,5 Z" fill="#27AE60"/>
+    </marker>
+    <marker id="arr-o" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <path d="M0,0 L6,2.5 L0,5 Z" fill="#E67E22"/>
+    </marker>
+    <marker id="arr-p" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <path d="M0,0 L6,2.5 L0,5 Z" fill="#8E44AD"/>
+    </marker>
+    <marker id="arr-gray" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+      <path d="M0,0 L6,2.5 L0,5 Z" fill="#95A5A6"/>
+    </marker>
+    <filter id="sh">
+      <feDropShadow dx="0.5" dy="0.5" stdDeviation="1" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+
+  <rect width="1000" height="780" fill="#FAFBFC" rx="6"/>
+
+  <!-- Title -->
+  <text x="500" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#2C3E50">Bubble-YOLO11s 架构详图</text>
+  <text x="500" y="46" text-anchor="middle" font-size="10" fill="#95A5A6">输入分辨率 768×768 | 参数量 9,414,340 | 计算量 21.3 GFLOPs | 单类检测 (bubble)</text>
+
+  <!-- ===== LAYER FLOW (vertical, left to right) ===== -->
+
+  <!-- Layer indices column -->
+  <rect x="10" y="65" width="35" height="14" rx="2" fill="#ECF0F1"/>
+  <text x="27" y="76" text-anchor="middle" font-size="8" fill="#95A5A6">L#</text>
+
+  <!-- Column: INPUT -->
+  <rect x="55" y="60" width="80" height="90" rx="6" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="95" y="85" text-anchor="middle" font-size="10" font-weight="bold" fill="#2C3E50">输入</text>
+  <text x="95" y="102" text-anchor="middle" font-size="9" fill="#7F8C8D">768×768</text>
+  <text x="95" y="118" text-anchor="middle" font-size="9" fill="#7F8C8D">×3通道</text>
+  <text x="95" y="140" text-anchor="middle" font-size="8" fill="#BDC3C7">P3: 96×96</text>
+
+  <!-- Column: BACKBONE -->
+  <line x1="135" y1="105" x2="155" y2="105" stroke="#4A90D9" stroke-width="1.5" marker-end="url(#arr-b)"/>
+
+  <rect x="160" y="60" width="150" height="450" rx="8" fill="#EBF5FB" stroke="#4A90D9" stroke-width="1.5"/>
+  <text x="235" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#2C5F8A">骨干网络 (Backbone)</text>
+
+  <!-- L0 -->
+  <text x="10" y="106" text-anchor="start" font-size="8" fill="#4A90D9">0</text>
+  <rect x="175" y="96" width="120" height="24" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="235" y="112" text-anchor="middle" font-size="9" fill="#333">Conv(3,2) 64ch</text>
+
+  <line x1="235" y1="120" x2="235" y2="136" stroke="#4A90D9" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- L2 (C3k2 ×2) -->
+  <text x="10" y="152" text-anchor="start" font-size="8" fill="#4A90D9">2,4</text>
+  <rect x="175" y="142" width="120" height="24" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="235" y="158" text-anchor="middle" font-size="9" fill="#333">C3k2 ×2 128-256ch</text>
+
+  <line x1="235" y1="166" x2="235" y2="182" stroke="#4A90D9" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- L6 (C3k2 ×2) -->
+  <text x="10" y="198" text-anchor="start" font-size="8" fill="#4A90D9">6,8</text>
+  <rect x="175" y="188" width="120" height="24" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="235" y="204" text-anchor="middle" font-size="9" fill="#333">C3k2 ×2 256-512ch</text>
+
+  <!-- P4 skip arrow -->
+  <text x="305" y="208" font-size="8" fill="#95A5A6">— — → P4</text>
+
+  <line x1="235" y1="212" x2="235" y2="228" stroke="#4A90D9" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- L9 SPPF -->
+  <text x="10" y="244" text-anchor="start" font-size="8" fill="#4A90D9">9</text>
+  <rect x="175" y="234" width="120" height="24" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="235" y="250" text-anchor="middle" font-size="9" fill="#333">SPPF(k=5) 512ch</text>
+
+  <!-- P3 skip arrow -->
+  <text x="305" y="254" font-size="8" fill="#95A5A6">— — → P3</text>
+
+  <line x1="235" y1="258" x2="235" y2="274" stroke="#4A90D9" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- L10 C2PSA -->
+  <text x="10" y="290" text-anchor="start" font-size="8" fill="#4A90D9">10</text>
+  <rect x="175" y="280" width="120" height="24" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="235" y="296" text-anchor="middle" font-size="9" fill="#333">C2PSA 1024ch</text>
+
+  <text x="235" y="340" text-anchor="middle" font-size="9" fill="#4A90D9">下采样: 2→4→8→16→32</text>
+  <text x="235" y="358" text-anchor="middle" font-size="9" fill="#4A90D9">输出: P3(96×96), P4(48×48), P5(24×24)</text>
+
+  <!-- Backbone → Neck main flow -->
+  <line x1="310" y1="292" x2="340" y2="292" stroke="#27AE60" stroke-width="1.5" marker-end="url(#arr-g)"/>
+
+  <!-- Column: NECK (+ P3LCRefine) -->
+  <rect x="345" y="60" width="220" height="610" rx="8" fill="#EAFAF1" stroke="#27AE60" stroke-width="1.5"/>
+  <text x="455" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#1E8449">特征融合颈部 (Neck)</text>
+
+  <!-- L11 Conv -->
+  <text x="10" y="390" text-anchor="start" font-size="8" fill="#27AE60">11</text>
+  <rect x="360" y="380" width="135" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="427" y="395" text-anchor="middle" font-size="9" fill="#333">Conv(k=3,s=2) P5→P5'</text>
+
+  <line x1="427" y1="402" x2="427" y2="418" stroke="#27AE60" stroke-width="1" marker-end="url(#arr-g)"/>
+
+  <!-- L12 Upsample + Concat (P5→P4) -->
+  <text x="10" y="434" text-anchor="start" font-size="8" fill="#27AE60">12</text>
+  <rect x="360" y="424" width="185" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="452" y="439" text-anchor="middle" font-size="9" fill="#333">上采样 + Concat(P5'↑, L8 skip)</text>
+
+  <line x1="452" y1="446" x2="452" y2="462" stroke="#27AE60" stroke-width="1" marker-end="url(#arr-g)"/>
+
+  <!-- L13 C3k2 -->
+  <text x="10" y="478" text-anchor="start" font-size="8" fill="#27AE60">13</text>
+  <rect x="360" y="468" width="135" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="427" y="483" text-anchor="middle" font-size="9" fill="#333">C3k2 256ch</text>
+
+  <line x1="427" y1="490" x2="427" y2="506" stroke="#27AE60" stroke-width="1" marker-end="url(#arr-g)"/>
+
+  <!-- L15 Upsample + Concat (P4→P3) -->
+  <text x="10" y="522" text-anchor="start" font-size="8" fill="#27AE60">15</text>
+  <rect x="360" y="512" width="185" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="452" y="527" text-anchor="middle" font-size="9" fill="#333">上采样 + Concat(P4↑, L6 skip)</text>
+
+  <line x1="452" y1="534" x2="452" y2="550" stroke="#27AE60" stroke-width="1" marker-end="url(#arr-g)"/>
+
+  <!-- L16 C3k2 -->
+  <text x="10" y="566" text-anchor="start" font-size="8" fill="#27AE60">16</text>
+  <rect x="360" y="556" width="135" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="427" y="571" text-anchor="middle" font-size="9" fill="#333">C3k2 128ch ← P3特征</text>
+
+  <!-- ★★★★★ P3LCRefine ★★★★★ -->
+  <line x1="427" y1="578" x2="427" y2="598" stroke="#E67E22" stroke-width="2" marker-end="url(#arr-o)"/>
+
+  <text x="10" y="614" text-anchor="start" font-size="8" fill="#E67E22" font-weight="bold">17</text>
+  <rect x="355" y="600" width="195" height="30" rx="5" fill="#FFF3E0" stroke="#E67E22" stroke-width="2" filter="url(#sh)"/>
+  <text x="452" y="614" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">★ P3LCRefine(128, k=3, γ=1.0) ★</text>
+  <text x="452" y="626" text-anchor="middle" font-size="7.5" fill="#E67E22">x + γ · DWConv(x − AvgPool(x))</text>
+
+  <line x1="452" y1="630" x2="452" y2="648" stroke="#27AE60" stroke-width="1" marker-end="url(#arr-g)"/>
+
+  <!-- L19 Conv + Concat -->
+  <text x="10" y="664" text-anchor="start" font-size="8" fill="#27AE60">19</text>
+  <rect x="360" y="654" width="185" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="452" y="669" text-anchor="middle" font-size="9" fill="#333">Conv(k=3,s=2) + Concat(L13→)</text>
+
+  <!-- L20,22,23 etc -->
+  <text x="10" y="702" text-anchor="start" font-size="8" fill="#27AE60">20-23</text>
+  <rect x="360" y="692" width="185" height="22" rx="3" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="452" y="707" text-anchor="middle" font-size="9" fill="#333">C3k2 → Conv+Concat → C3k2</text>
+
+  <!-- ===== DETECT HEAD ===== -->
+  <line x1="565" y1="615" x2="605" y2="498" stroke="#E67E22" stroke-width="2" marker-end="url(#arr-p)"/>
+  <line x1="565" y1="483" x2="605" y2="566" stroke="#8E44AD" stroke-width="1.5" marker-end="url(#arr-p)"/>
+  <line x1="565" y1="700" x2="605" y2="634" stroke="#8E44AD" stroke-width="1.5" marker-end="url(#arr-p)"/>
+
+  <rect x="610" y="60" width="145" height="640" rx="8" fill="#F4ECF7" stroke="#8E44AD" stroke-width="1.5"/>
+  <text x="682" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#6C3483">检测头</text>
+  <text x="682" y="96" text-anchor="middle" font-size="9" fill="#8E44AD">(Detect Head)</text>
+
+  <!-- P3 Head -->
+  <rect x="625" y="483" width="115" height="36" rx="4" fill="#fff" stroke="#E67E22" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="682" y="498" text-anchor="middle" font-size="10" font-weight="bold" fill="#6C3483">P3 检测头</text>
+  <text x="682" y="513" text-anchor="middle" font-size="8" fill="#8E44AD">96×96  grid | stride=8</text>
+
+  <!-- P4 Head -->
+  <rect x="625" y="551" width="115" height="36" rx="4" fill="#fff" stroke="#8E44AD" stroke-width="1" filter="url(#sh)"/>
+  <text x="682" y="566" text-anchor="middle" font-size="10" fill="#333">P4 检测头</text>
+  <text x="682" y="581" text-anchor="middle" font-size="8" fill="#95A5A6">48×48  grid | stride=16</text>
+
+  <!-- P5 Head -->
+  <rect x="625" y="619" width="115" height="36" rx="4" fill="#fff" stroke="#8E44AD" stroke-width="1" filter="url(#sh)"/>
+  <text x="682" y="634" text-anchor="middle" font-size="10" fill="#333">P5 检测头</text>
+  <text x="682" y="649" text-anchor="middle" font-size="8" fill="#95A5A6">24×24  grid | stride=32</text>
+
+  <!-- ===== LOSS SECTION ===== -->
+  <line x1="755" y1="501" x2="780" y2="501" stroke="#555" stroke-width="1.5"/>
+  <line x1="755" y1="569" x2="780" y2="569" stroke="#555" stroke-width="1.5"/>
+  <line x1="755" y1="637" x2="780" y2="637" stroke="#555" stroke-width="1.5"/>
+
+  <rect x="785" y="460" width="195" height="210" rx="8" fill="#FDEDEC" stroke="#E74C3C" stroke-width="1.5"/>
+  <text x="882" y="482" text-anchor="middle" font-size="11" font-weight="bold" fill="#922B21">损失函数</text>
+
+  <rect x="800" y="495" width="165" height="26" rx="4" fill="#fff" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="882" y="512" text-anchor="middle" font-size="9" fill="#333">CIoU Loss (权重 0.95)</text>
+
+  <rect x="800" y="530" width="165" height="26" rx="4" fill="#fff" stroke="#2980B9" stroke-width="1"/>
+  <text x="882" y="547" text-anchor="middle" font-size="9" fill="#333">NWD Loss (权重 0.05, C=12.8)</text>
+
+  <line x1="882" y1="521" x2="882" y2="530" stroke="#555" stroke-width="1"/>
+  <line x1="882" y1="556" x2="882" y2="568" stroke="#555" stroke-width="1"/>
+
+  <rect x="795" y="568" width="175" height="30" rx="5" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5"/>
+  <text x="882" y="582" text-anchor="middle" font-size="9" font-weight="bold" fill="#1E8449">L_box = 0.95L_CIoU + 0.05L_NWD</text>
+  <text x="882" y="595" text-anchor="middle" font-size="8" fill="#27AE60">分类损失 + DFL 分布聚焦损失</text>
+
+  <!-- ===== P3LCRefine Zoomed Detail (right side bottom) ===== -->
+  <rect x="20" y="530" width="290" height="230" rx="8" fill="#FFF3E0" stroke="#E67E22" stroke-width="1.5"/>
+  <text x="165" y="550" text-anchor="middle" font-size="11" font-weight="bold" fill="#D35400">P3LCRefine 模块内部详图</text>
+
+  <rect x="35" y="562" width="110" height="28" rx="4" fill="#fff" stroke="#E67E22" stroke-width="1"/>
+  <text x="90" y="580" text-anchor="middle" font-size="8" fill="#333">输入 x (128,H,W)</text>
+
+  <!-- Split to two paths -->
+  <line x1="90" y1="590" x2="90" y2="610" stroke="#555" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- Top path: AvgPool -->
+  <rect x="35" y="612" width="110" height="24" rx="3" fill="#FDEBD0" stroke="#E67E22" stroke-width="1"/>
+  <text x="90" y="628" text-anchor="middle" font-size="8" fill="#D35400">AvgPool 3×3</text>
+
+  <line x1="90" y1="636" x2="90" y2="654" stroke="#555" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- Subtract -->
+  <circle cx="140" cy="680" r="28" fill="#FAD7A1" stroke="#E67E22" stroke-width="1"/>
+  <text x="140" y="676" text-anchor="middle" font-size="8" fill="#D35400">x−avg</text>
+  <text x="140" y="690" text-anchor="middle" font-size="7" fill="#D35400">(对比度)</text>
+
+  <line x1="90" y1="654" x2="140" y2="654" stroke="#555" stroke-width="0.8"/>
+
+  <rect x="160" y="654" width="110" height="24" rx="3" fill="#FDEBD0" stroke="#E67E22" stroke-width="1"/>
+  <text x="215" y="670" text-anchor="middle" font-size="8" fill="#D35400">DWConv 3×3</text>
+
+  <line x1="215" y1="678" x2="215" y2="700" stroke="#555" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <rect x="160" y="702" width="110" height="24" rx="3" fill="#FDEBD0" stroke="#E67E22" stroke-width="1"/>
+  <text x="215" y="718" text-anchor="middle" font-size="8" fill="#D35400">× γ (learnable)</text>
+
+  <line x1="215" y1="726" x2="215" y2="740" stroke="#555" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <!-- ADD circle -->
+  <circle cx="260" cy="740" r="18" fill="#ABEBC6" stroke="#27AE60" stroke-width="1.5"/>
+  <text x="260" y="744" text-anchor="middle" font-size="9" font-weight="bold" fill="#1E8449">+</text>
+
+  <!-- Bypass path from x -->
+  <path d="M145,576 C200,576 200,620 200,700 C200,720 220,730 242,740" fill="none" stroke="#95A5A6" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-gray)"/>
+  <text x="170" y="640" font-size="7" fill="#95A5A6" transform="rotate(-70,170,640)">残差连接</text>
+
+  <line x1="278" y1="740" x2="295" y2="740" stroke="#555" stroke-width="1" marker-end="url(#arr-b)"/>
+
+  <rect x="298" y="728" width="24" height="24" rx="3" fill="#fff" stroke="#333" stroke-width="0.8"/>
+  <text x="310" y="744" text-anchor="middle" font-size="8" fill="#333">y</text>
+
+  <!-- Key stats below detail -->
+  <text x="165" y="758" text-anchor="middle" font-size="8" fill="#E67E22">参数量≈1280  |  计算量≈0.01GFLOPs  |  γ(初始)=1.0</text>
+
+  <!-- ===== P3LCRefine callout arrow ===== -->
+  <path d="M355,615 C310,615 310,700 310,660" fill="none" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="6,3"/>
+</svg>

@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" font-family="SimSun, 'Noto Sans SC', Arial, sans-serif">
+  <defs>
+    <filter id="sh">
+      <feDropShadow dx="0.5" dy="0.5" stdDeviation="2" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="800" height="520" fill="#FAFBFC" rx="6"/>
+  <text x="400" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#2C3E50">NWD 损失 — 数学推导与 CIoU 对比</text>
+
+  <!-- ===== LEFT: CIoU Analysis ===== -->
+  <rect x="20" y="45" width="370" height="200" rx="8" fill="#FDEDEC" stroke="#E74C3C" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="205" y="65" text-anchor="middle" font-size="11" font-weight="bold" fill="#922B21">CIoU (Complete IoU) 损失的问题</text>
+
+  <text x="35" y="88" font-size="9" fill="#333" font-family="monospace">L_CIoU = 1 − IoU + ρ²(b,bᵍᵗ)/c² + α·v</text>
+
+  <text x="35" y="110" font-size="9" fill="#C0392B">问题 ① IoU 对小偏移过度敏感</text>
+  <text x="45" y="126" font-size="8" fill="#7F8C8D">40px 气泡: 1px 偏移 → IoU ≈ 0.95→0.90; 3px → &lt;0.80</text>
+  <text x="45" y="140" font-size="8" fill="#7F8C8D">梯度稀疏、剧烈波动，不利于小目标稳定训练</text>
+
+  <text x="35" y="162" font-size="9" fill="#C0392B">问题 ② 长宽比项 α·v 对近圆形气泡无效</text>
+  <text x="45" y="178" font-size="8" fill="#7F8C8D">v = (4/π²)·(atan(wᵍᵗ/hᵍᵗ) − atan(w/h))²</text>
+  <text x="45" y="192" font-size="8" fill="#7F8C8D">气泡 w≈h → v≈0 → α·v 贡献极小，却引入噪声梯度</text>
+
+  <text x="35" y="214" font-size="9" fill="#C0392B">问题 ③ 无重叠区域梯度信号弱</text>
+  <text x="45" y="230" font-size="8" fill="#7F8C8D">IoU=0 时仅剩中心距离项，缺乏尺度方向引导</text>
+
+  <!-- ===== RIGHT: NWD Solution ===== -->
+  <rect x="410" y="45" width="370" height="200" rx="8" fill="#EAFAF1" stroke="#27AE60" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="595" y="65" text-anchor="middle" font-size="11" font-weight="bold" fill="#1E8449">NWD (归一化 Wasserstein 距离) 的解决方案</text>
+
+  <text x="425" y="88" font-size="9" fill="#1E8449" font-weight="bold">步骤 1: 边界框 → 二维高斯分布</text>
+  <text x="435" y="104" font-size="8" fill="#333" font-family="monospace">Box(cx,cy,w,h) → N(μ,Σ)</text>
+  <text x="435" y="118" font-size="8" fill="#333" font-family="monospace">μ = [cx, cy]ᵀ</text>
+  <text x="435" y="132" font-size="8" fill="#333" font-family="monospace">Σ = diag(w²/4, h²/4)</text>
+
+  <text x="425" y="155" font-size="9" fill="#1E8449" font-weight="bold">步骤 2: Wasserstein 距离</text>
+  <text x="435" y="171" font-size="8" fill="#333" font-family="monospace">W² = ‖μ₁−μ₂‖² + ‖w₁/2−w₂/2‖² + ‖h₁/2−h₂/2‖²</text>
+  <text x="435" y="187" font-size="8" fill="#333" font-family="monospace">   = (cx₁−cx₂)² + (cy₁−cy₂)² + (w₁−w₂)²/4 + (h₁−h₂)²/4</text>
+
+  <text x="425" y="210" font-size="9" fill="#1E8449" font-weight="bold">步骤 3: 归一化为损失</text>
+  <text x="435" y="226" font-size="8" fill="#333" font-family="monospace">NWD = exp(−W² / C) ,  C = 12.8</text>
+  <text x="435" y="242" font-size="8" fill="#333" font-family="monospace">L_NWD = 1 − NWD  ∈ [0, 1)</text>
+
+  <!-- ===== MIDDLE: Fusion Equation ===== -->
+  <rect x="20" y="260" width="760" height="55" rx="8" fill="#F4ECF7" stroke="#8E44AD" stroke-width="2" filter="url(#sh)"/>
+  <text x="400" y="280" text-anchor="middle" font-size="11" font-weight="bold" fill="#6C3483">CIoU 与 NWD 的加权融合</text>
+  <text x="400" y="302" text-anchor="middle" font-size="14" fill="#333" font-family="monospace">L_box = (1 − w_nwd) · L_CIoU  +  w_nwd · (1 − NWD)</text>
+
+  <!-- ===== BOTTOM: Ablation comparison ===== -->
+  <text x="400" y="340" text-anchor="middle" font-size="11" font-weight="bold" fill="#2C3E50">超参数消融实验</text>
+
+  <!-- w_nwd ablation table -->
+  <rect x="20" y="352" width="370" height="155" rx="6" fill="#fff" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="205" y="372" text-anchor="middle" font-size="10" font-weight="bold" fill="#555">NWD 融合权重 w_nwd 消融 (C=12.8 固定)</text>
+
+  <!-- Table header -->
+  <rect x="30" y="382" width="110" height="20" rx="2" fill="#ECF0F1"/>
+  <text x="85" y="396" text-anchor="middle" font-size="8" fill="#333">w_nwd</text>
+  <rect x="142" y="382" width="118" height="20" rx="2" fill="#ECF0F1"/>
+  <text x="201" y="396" text-anchor="middle" font-size="8" fill="#333">综合指标 S</text>
+  <rect x="262" y="382" width="118" height="20" rx="2" fill="#ECF0F1"/>
+  <text x="321" y="396" text-anchor="middle" font-size="8" fill="#333">Δ vs 基线(w=0)</text>
+
+  <!-- Data rows -->
+  <text x="85" y="416" text-anchor="middle" font-size="8" fill="#333">0 (仅CIoU)</text>
+  <text x="201" y="416" text-anchor="middle" font-size="8" fill="#333">1.23134</text>
+  <text x="321" y="416" text-anchor="middle" font-size="8" fill="#7F8C8D">— (基线)</text>
+
+  <text x="85" y="434" text-anchor="middle" font-size="8" fill="#333">0.025</text>
+  <text x="201" y="434" text-anchor="middle" font-size="8" fill="#333">1.23712</text>
+  <text x="321" y="434" text-anchor="middle" font-size="8" fill="#27AE60">+0.00578</text>
+
+  <rect x="30" y="442" width="350" height="18" rx="2" fill="#FFF3E0"/>
+  <text x="85" y="454" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">0.05 ★ 最优</text>
+  <text x="201" y="454" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">1.23962</text>
+  <text x="321" y="454" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">+0.00828 ★</text>
+
+  <text x="85" y="474" text-anchor="middle" font-size="8" fill="#333">0.075</text>
+  <text x="201" y="474" text-anchor="middle" font-size="8" fill="#333">1.23891</text>
+  <text x="321" y="474" text-anchor="middle" font-size="8" fill="#E74C3C">−0.00071</text>
+
+  <text x="85" y="492" text-anchor="middle" font-size="8" fill="#333">0.10</text>
+  <text x="201" y="492" text-anchor="middle" font-size="8" fill="#333">1.23745</text>
+  <text x="321" y="492" text-anchor="middle" font-size="8" fill="#E74C3C">−0.00217</text>
+
+  <text x="85" y="508" text-anchor="middle" font-size="8" fill="#333">0.20</text>
+  <text x="201" y="508" text-anchor="middle" font-size="8" fill="#333">1.23410</text>
+  <text x="321" y="508" text-anchor="middle" font-size="8" fill="#E74C3C">−0.00552</text>
+
+  <!-- C ablation table -->
+  <rect x="410" y="352" width="370" height="155" rx="6" fill="#fff" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="595" y="372" text-anchor="middle" font-size="10" font-weight="bold" fill="#555">NWD 归一化常数 C 消融 (w=0.05 固定)</text>
+
+  <rect x="420" y="382" width="110" height="20" rx="2" fill="#ECF0F1"/>
+  <text x="475" y="396" text-anchor="middle" font-size="8" fill="#333">C 值</text>
+  <rect x="532" y="382" width="118" height="20" rx="2" fill="#ECF0F1"/>
+  <text x="591" y="396" text-anchor="middle" font-size="8" fill="#333">综合指标 S</text>
+  <rect x="652" y="382" width="118" height="20" rx="2" fill="#ECF0F1"/>
+  <text x="711" y="396" text-anchor="middle" font-size="8" fill="#333">Δ vs C=12.8</text>
+
+  <text x="475" y="416" text-anchor="middle" font-size="8" fill="#333">6.4 (严格)</text>
+  <text x="591" y="416" text-anchor="middle" font-size="8" fill="#E74C3C">1.24273</text>
+  <text x="711" y="416" text-anchor="middle" font-size="8" fill="#E74C3C">−0.02027 严重退化</text>
+
+  <rect x="420" y="426" width="350" height="18" rx="2" fill="#FFF3E0"/>
+  <text x="475" y="438" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">12.8 ★ 最优</text>
+  <text x="591" y="438" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">1.26300</text>
+  <text x="711" y="438" text-anchor="middle" font-size="9" font-weight="bold" fill="#D35400">— 最优 ★</text>
+
+  <text x="475" y="462" text-anchor="middle" font-size="8" fill="#333">25.6 (宽松)</text>
+  <text x="591" y="462" text-anchor="middle" font-size="8" fill="#333">1.25778</text>
+  <text x="711" y="462" text-anchor="middle" font-size="8" fill="#E74C3C">−0.00522 轻度退化</text>
+
+  <text x="595" y="488" text-anchor="middle" font-size="8" fill="#7F8C8D">C值过大 → 对小偏移过于宽容，平滑效果减弱</text>
+  <text x="595" y="502" text-anchor="middle" font-size="8" fill="#7F8C8D">C值过小 → 对小偏移过于敏感，与CIoU梯度冲突</text>
+</svg>

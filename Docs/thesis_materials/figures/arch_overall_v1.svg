@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="SimSun, 'Noto Sans SC', Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#4A90D9"/>
+    </marker>
+    <linearGradient id="grad-backbone" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3A7BD5"/>
+      <stop offset="100%" stop-color="#5B9EF5"/>
+    </linearGradient>
+    <linearGradient id="grad-neck" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#229954"/>
+      <stop offset="100%" stop-color="#2ECC71"/>
+    </linearGradient>
+    <linearGradient id="grad-refine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D35400"/>
+      <stop offset="100%" stop-color="#E67E22"/>
+    </linearGradient>
+    <linearGradient id="grad-head" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7D3C98"/>
+      <stop offset="100%" stop-color="#A569BD"/>
+    </linearGradient>
+    <linearGradient id="grad-loss" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#C0392B"/>
+      <stop offset="100%" stop-color="#E74C3C"/>
+    </linearGradient>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="720" fill="#FAFAFA" rx="8"/>
+
+  <!-- Title -->
+  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#2C3E50">Bubble-YOLO11s 整体架构</text>
+
+  <!-- ===== INPUT ===== -->
+  <rect x="20" y="60" width="120" height="50" rx="6" fill="#ECF0F1" stroke="#BDC3C7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="80" y="82" text-anchor="middle" font-size="11" fill="#7F8C8D">输入图像</text>
+  <text x="80" y="98" text-anchor="middle" font-size="10" fill="#95A5A6">768×768×3</text>
+
+  <line x1="140" y1="85" x2="170" y2="85" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ===== BACKBONE ===== -->
+  <rect x="175" y="45" width="160" height="270" rx="8" fill="url(#grad-backbone)" opacity="0.12" stroke="#4A90D9" stroke-width="1.5"/>
+  <text x="255" y="65" text-anchor="middle" font-size="13" font-weight="bold" fill="#2C5F8A">骨干网络 Backbone</text>
+
+  <rect x="190" y="80" width="130" height="32" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="255" y="100" text-anchor="middle" font-size="10" fill="#333">Conv Stem (L0)</text>
+
+  <rect x="190" y="120" width="130" height="32" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="255" y="140" text-anchor="middle" font-size="10" fill="#333">C3k2 ×2 (L2,4)</text>
+
+  <rect x="190" y="160" width="130" height="32" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="255" y="180" text-anchor="middle" font-size="10" fill="#333">C3k2 ×2 (L6,8)</text>
+
+  <rect x="190" y="200" width="130" height="32" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="255" y="220" text-anchor="middle" font-size="10" fill="#333">SPPF (L9)</text>
+
+  <rect x="190" y="240" width="130" height="32" rx="4" fill="#fff" stroke="#4A90D9" stroke-width="1"/>
+  <text x="255" y="260" text-anchor="middle" font-size="10" fill="#333">C2PSA (L10)</text>
+
+  <text x="255" y="305" text-anchor="middle" font-size="9" fill="#5B9EF5">参数量: ~5.2M</text>
+
+  <!-- Backbone → Neck (P5) -->
+  <line x1="335" y1="180" x2="370" y2="180" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Backbone skip → Neck P4 -->
+  <path d="M255,200 L255,390 L370,390" fill="none" stroke="#95A5A6" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+  <text x="310" y="405" font-size="8" fill="#95A5A6">skip P4</text>
+  <!-- Backbone skip → Neck P3 -->
+  <path d="M255,240 L255,550 L370,550" fill="none" stroke="#95A5A6" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+  <text x="310" y="565" font-size="8" fill="#95A5A6">skip P3</text>
+
+  <!-- ===== NECK ===== -->
+  <rect x="375" y="45" width="180" height="620" rx="8" fill="url(#grad-neck)" opacity="0.1" stroke="#27AE60" stroke-width="1.5"/>
+  <text x="465" y="65" text-anchor="middle" font-size="13" font-weight="bold" fill="#1E8449">特征融合颈部 Neck</text>
+
+  <!-- Neck blocks -->
+  <rect x="390" y="270" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="288" text-anchor="middle" font-size="9" fill="#333">Conv (L11)</text>
+
+  <rect x="390" y="308" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="326" text-anchor="middle" font-size="9" fill="#333">上采样 + 拼接 (L12)</text>
+
+  <rect x="390" y="346" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="364" text-anchor="middle" font-size="9" fill="#333">C3k2 P4 (L13)</text>
+
+  <rect x="390" y="384" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="402" text-anchor="middle" font-size="9" fill="#333">上采样 + 拼接 (L15)</text>
+
+  <rect x="390" y="422" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="440" text-anchor="middle" font-size="9" fill="#333">C3k2 P3 (L16)</text>
+
+  <!-- P3LCRefine highlighted -->
+  <rect x="385" y="465" width="160" height="36" rx="6" fill="#FFF3E0" stroke="#E67E22" stroke-width="2" filter="url(#shadow)"/>
+  <text x="465" y="480" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">★ P3LCRefine (L17) ★</text>
+  <text x="465" y="494" text-anchor="middle" font-size="8" fill="#E67E22">~1.2K 参数 • 几乎零开销</text>
+
+  <rect x="390" y="516" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="534" text-anchor="middle" font-size="9" fill="#333">Conv + 拼接 (L19)</text>
+
+  <rect x="390" y="554" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="572" text-anchor="middle" font-size="9" fill="#333">C3k2 P4 (L20)</text>
+
+  <rect x="390" y="592" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="610" text-anchor="middle" font-size="9" fill="#333">Conv + 拼接 (L22)</text>
+
+  <rect x="390" y="630" width="150" height="28" rx="4" fill="#fff" stroke="#27AE60" stroke-width="1"/>
+  <text x="465" y="648" text-anchor="middle" font-size="9" fill="#333">C3k2 P5 (L23)</text>
+
+  <!-- ===== DETECT HEAD ===== -->
+  <line x1="545" y1="483" x2="585" y2="483" stroke="#E67E22" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="545" y1="568" x2="585" y2="568" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="545" y1="644" x2="585" y2="644" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="590" y="45" width="155" height="620" rx="8" fill="url(#grad-head)" opacity="0.1" stroke="#8E44AD" stroke-width="1.5"/>
+  <text x="667" y="65" text-anchor="middle" font-size="13" font-weight="bold" fill="#6C3483">检测头 Detect Head</text>
+
+  <rect x="605" y="468" width="125" height="32" rx="4" fill="#E8DAEF" stroke="#8E44AD" stroke-width="1.5"/>
+  <text x="667" y="482" text-anchor="middle" font-size="10" font-weight="bold" fill="#6C3483">P3 检测头</text>
+  <text x="667" y="495" text-anchor="middle" font-size="8" fill="#8E44AD">80×80×64  stride=8</text>
+
+  <rect x="605" y="553" width="125" height="32" rx="4" fill="#fff" stroke="#8E44AD" stroke-width="1"/>
+  <text x="667" y="567" text-anchor="middle" font-size="10" fill="#333">P4 检测头</text>
+  <text x="667" y="580" text-anchor="middle" font-size="8" fill="#95A5A6">40×40×128  stride=16</text>
+
+  <rect x="605" y="629" width="125" height="32" rx="4" fill="#fff" stroke="#8E44AD" stroke-width="1"/>
+  <text x="667" y="643" text-anchor="middle" font-size="10" fill="#333">P5 检测头</text>
+  <text x="667" y="656" text-anchor="middle" font-size="8" fill="#95A5A6">20×20×256  stride=32</text>
+
+  <!-- ===== LOSS ===== -->
+  <line x1="745" y1="484" x2="780" y2="440" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="745" y1="569" x2="780" y2="520" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="745" y1="645" x2="780" y2="600" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="780" y="380" width="150" height="340" rx="8" fill="url(#grad-loss)" opacity="0.08" stroke="#E74C3C" stroke-width="1.5"/>
+  <text x="855" y="400" text-anchor="middle" font-size="11" font-weight="bold" fill="#922B21">损失函数</text>
+
+  <rect x="795" y="415" width="120" height="28" rx="4" fill="#FADBD8" stroke="#E74C3C" stroke-width="1"/>
+  <text x="855" y="433" text-anchor="middle" font-size="9" fill="#333">CIoU Loss (95%)</text>
+
+  <rect x="795" y="450" width="120" height="28" rx="4" fill="#D6EAF8" stroke="#2980B9" stroke-width="1"/>
+  <text x="855" y="468" text-anchor="middle" font-size="9" fill="#333">NWD Loss (5%)</text>
+
+  <line x1="855" y1="443" x2="855" y2="450" stroke="#555" stroke-width="1"/>
+  <line x1="855" y1="478" x2="855" y2="490" stroke="#555" stroke-width="1"/>
+
+  <rect x="790" y="490" width="130" height="36" rx="6" fill="#4CAF50" opacity="0.2" stroke="#4CAF50" stroke-width="1.5"/>
+  <text x="855" y="508" text-anchor="middle" font-size="9" font-weight="bold" fill="#1E8449">融合损失</text>
+  <text x="855" y="522" text-anchor="middle" font-size="8" fill="#27AE60">0.95×CIoU + 0.05×NWD</text>
+
+  <!-- ===== LEGEND ===== -->
+  <rect x="795" y="550" width="120" height="170" rx="6" fill="#fff" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="855" y="568" text-anchor="middle" font-size="9" font-weight="bold" fill="#555">图例</text>
+  <line x1="808" y1="578" x2="838" y2="578" stroke="#4A90D9" stroke-width="2"/>
+  <text x="845" y="582" font-size="8" fill="#555">骨干网络</text>
+  <line x1="808" y1="594" x2="838" y2="594" stroke="#27AE60" stroke-width="2"/>
+  <text x="845" y="598" font-size="8" fill="#555">特征融合颈部</text>
+  <line x1="808" y1="610" x2="838" y2="610" stroke="#E67E22" stroke-width="2"/>
+  <text x="845" y="614" font-size="8" fill="#555">新增改进模块</text>
+  <line x1="808" y1="626" x2="838" y2="626" stroke="#8E44AD" stroke-width="1.5"/>
+  <text x="845" y="630" font-size="8" fill="#555">检测头</text>
+  <line x1="808" y1="642" x2="838" y2="642" stroke="#95A5A6" stroke-width="1.2" stroke-dasharray="5,3"/>
+  <text x="845" y="646" font-size="8" fill="#555">跳跃连接</text>
+  <line x1="808" y1="658" x2="838" y2="658" stroke="#E74C3C" stroke-width="1.5"/>
+  <text x="845" y="662" font-size="8" fill="#555">损失函数</text>
+  <text x="855" y="685" text-anchor="middle" font-size="8" fill="#95A5A6">Params: 9.41M | FLOPs: 21.3G</text>
+</svg>

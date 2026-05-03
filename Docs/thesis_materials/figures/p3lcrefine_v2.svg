@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 460" font-family="SimSun, 'Noto Sans SC', Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5 Z" fill="#555"/>
+    </marker>
+    <marker id="arr-o" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5 Z" fill="#E67E22"/>
+    </marker>
+    <filter id="sh">
+      <feDropShadow dx="0.5" dy="0.5" stdDeviation="1.5" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+
+  <rect width="750" height="460" fill="#FAFBFC" rx="6"/>
+  <text x="375" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#2C3E50">P3LCRefine 模块内部结构详解</text>
+
+  <!-- ===== Step-by-step with tensor shapes ===== -->
+
+  <!-- Step 0: Input -->
+  <rect x="25" y="55" width="160" height="55" rx="6" fill="#D6EAF8" stroke="#2980B9" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="105" y="74" text-anchor="middle" font-size="11" font-weight="bold" fill="#2C5F8A">输入: x</text>
+  <text x="105" y="90" text-anchor="middle" font-size="9" fill="#4A90D9">(B, 128, H, W)</text>
+  <text x="105" y="104" text-anchor="middle" font-size="8" fill="#95A5A6">Neck P3 输出特征图</text>
+
+  <line x1="185" y1="82" x2="205" y2="82" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="185" y1="82" x2="205" y2="175" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Step 1: AvgPool -->
+  <rect x="210" y="55" width="180" height="55" rx="6" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="300" y="74" text-anchor="middle" font-size="11" font-weight="bold" fill="#D35400">① 平均池化</text>
+  <text x="300" y="90" text-anchor="middle" font-size="9" fill="#E67E22">x_avg = AvgPool_3×3(x)</text>
+  <text x="300" y="104" text-anchor="middle" font-size="8" fill="#E67E22">kernel=3, stride=1, padding=1</text>
+
+  <text x="300" y="130" text-anchor="middle" font-size="9" fill="#7F8C8D">↓</text>
+
+  <!-- Step 2: Contrast (x - avg) -->
+  <rect x="210" y="142" width="180" height="55" rx="6" fill="#FDEDEC" stroke="#E74C3C" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="300" y="161" text-anchor="middle" font-size="11" font-weight="bold" fill="#922B21">② 对比度提取</text>
+  <text x="300" y="177" text-anchor="middle" font-size="9" fill="#E74C3C">contrast = x − x_avg</text>
+  <text x="300" y="191" text-anchor="middle" font-size="8" fill="#C0392B">输出形状: (B, 128, H, W)</text>
+
+  <!-- Annotation: high-pass filter -->
+  <text x="395" y="170" font-size="8" fill="#E74C3C">← 高通滤波器: 提取边缘、纹理等局部变化信息</text>
+
+  <text x="300" y="215" text-anchor="middle" font-size="9" fill="#7F8C8D">↓</text>
+
+  <!-- Step 3: DWConv -->
+  <rect x="210" y="225" width="180" height="55" rx="6" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="300" y="244" text-anchor="middle" font-size="11" font-weight="bold" fill="#D35400">③ 深度可分离卷积</text>
+  <text x="300" y="260" text-anchor="middle" font-size="9" fill="#E67E22">c′ = DWConv_3×3(contrast)</text>
+  <text x="300" y="274" text-anchor="middle" font-size="8" fill="#E67E22">out_ch=128, groups=128, kernel=3</text>
+
+  <text x="395" y="253" font-size="8" fill="#E67E22">← 每个通道独立卷积, 参数量 9×128=1152</text>
+
+  <text x="300" y="300" text-anchor="middle" font-size="9" fill="#7F8C8D">↓</text>
+
+  <!-- Step 4: Gamma scale -->
+  <rect x="210" y="310" width="180" height="55" rx="6" fill="#FFF3E0" stroke="#E67E22" stroke-width="2" filter="url(#sh)"/>
+  <text x="300" y="329" text-anchor="middle" font-size="11" font-weight="bold" fill="#D35400">④ γ 缩放</text>
+  <text x="300" y="345" text-anchor="middle" font-size="9" fill="#E67E22">c″ = γ · c′</text>
+  <text x="300" y="359" text-anchor="middle" font-size="8" fill="#D35400">γ = 1.0 (初始), 可学习</text>
+
+  <text x="395" y="338" font-size="8" fill="#D35400">← 唯一可学习标量, 控制精炼强度</text>
+
+  <line x1="390" y1="337" x2="420" y2="270" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Step 5: Residual Add (right side) -->
+  <circle cx="540" cy="215" r="35" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" filter="url(#sh)"/>
+  <text x="540" y="208" text-anchor="middle" font-size="12" font-weight="bold" fill="#1E8449">⑤ 残差</text>
+  <text x="540" y="222" text-anchor="middle" font-size="10" fill="#27AE60">加法</text>
+  <text x="540" y="236" text-anchor="middle" font-size="8" fill="#27AE60">x + c″</text>
+
+  <line x1="390" y1="337" x2="540" y2="250" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="185" y1="82" x2="505" y2="215" stroke="#95A5A6" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arr)"/>
+
+  <text x="340" y="55" font-size="8" fill="#95A5A6">—— 残差跳跃 (恒等映射保持预训练特征) ——→</text>
+
+  <line x1="575" y1="215" x2="600" y2="215" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Output -->
+  <rect x="608" y="193" width="125" height="45" rx="6" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="670" y="212" text-anchor="middle" font-size="11" font-weight="bold" fill="#1E8449">输出: y</text>
+  <text x="670" y="228" text-anchor="middle" font-size="9" fill="#27AE60">(B, 128, H, W)</text>
+
+  <!-- ===== DETAIL PANELS ===== -->
+
+  <!-- Parameters panel -->
+  <rect x="25" y="390" width="210" height="60" rx="6" fill="#F8F9FA" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="130" y="408" text-anchor="middle" font-size="9" font-weight="bold" fill="#555">参数量明细</text>
+  <text x="130" y="424" text-anchor="middle" font-size="8" fill="#7F8C8D">DWConv weight: 3×3×128 = 1,152</text>
+  <text x="130" y="440" text-anchor="middle" font-size="8" fill="#7F8C8D">DWConv bias: 128 | γ scalar: 1</text>
+  <text x="130" y="452" text-anchor="middle" font-size="8" fill="#E67E22">合计: ≈1,281 (占模型 0.013%)</text>
+
+  <!-- Init strategy panel -->
+  <rect x="250" y="390" width="230" height="60" rx="6" fill="#F8F9FA" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="365" y="408" text-anchor="middle" font-size="9" font-weight="bold" fill="#555">初始化策略</text>
+  <text x="365" y="424" text-anchor="middle" font-size="8" fill="#7F8C8D">DWConv weight → 近零 (kaiming_uniform, scale=0.01)</text>
+  <text x="365" y="440" text-anchor="middle" font-size="8" fill="#7F8C8D">DWConv bias → 0  |  γ → 1.0</text>
+  <text x="365" y="452" text-anchor="middle" font-size="8" fill="#E67E22">训练开始时 → y ≈ x (近恒等映射)</text>
+
+  <!-- Design rationale panel -->
+  <rect x="495" y="390" width="240" height="60" rx="6" fill="#F8F9FA" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="615" y="408" text-anchor="middle" font-size="9" font-weight="bold" fill="#555">设计要点</text>
+  <text x="615" y="424" text-anchor="middle" font-size="8" fill="#7F8C8D">仅 P3 层: 气泡为小目标, P3 stride=8 最相关</text>
+  <text x="615" y="440" text-anchor="middle" font-size="8" fill="#7F8C8D">形状保持: 输入输出尺寸/通道数完全相同</text>
+  <text x="615" y="452" text-anchor="middle" font-size="8" fill="#7F8C8D">可插拔: 不影响原模型其余部分的结构</text>
+</svg>

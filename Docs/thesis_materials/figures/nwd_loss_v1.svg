@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 420" font-family="SimSun, 'Noto Sans SC', Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5 Z" fill="#555"/>
+    </marker>
+    <marker id="arr-b" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5 Z" fill="#2980B9"/>
+    </marker>
+    <marker id="arr-r" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5 Z" fill="#E74C3C"/>
+    </marker>
+    <filter id="sh">
+      <feDropShadow dx="0.5" dy="0.5" stdDeviation="1.5" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+
+  <rect width="800" height="420" fill="#FAFBFC" rx="6"/>
+  <text x="400" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#2C3E50">NWD 损失融合流程</text>
+  <text x="400" y="44" text-anchor="middle" font-size="10" fill="#95A5A6">基于归一化 Wasserstein 距离的边界框回归损失</text>
+
+  <!-- ===== NWD PATH (top) ===== -->
+  <text x="25" y="80" font-size="11" font-weight="bold" fill="#2980B9">NWD 损失路径</text>
+
+  <!-- Pred box -->
+  <rect x="25" y="92" width="100" height="45" rx="6" fill="#D6EAF8" stroke="#2980B9" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="75" y="112" text-anchor="middle" font-size="10" font-weight="bold" fill="#2C5F8A">预测框</text>
+  <text x="75" y="127" text-anchor="middle" font-size="8" fill="#4A90D9">(cx₁,cy₁,w₁,h₁)</text>
+
+  <!-- Target box -->
+  <rect x="25" y="152" width="100" height="45" rx="6" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="75" y="172" text-anchor="middle" font-size="10" font-weight="bold" fill="#922B21">真值框</text>
+  <text x="75" y="187" text-anchor="middle" font-size="8" fill="#E74C3C">(cx₂,cy₂,w₂,h₂)</text>
+
+  <line x1="125" y1="115" x2="160" y2="140" stroke="#2980B9" stroke-width="1.5" marker-end="url(#arr-b)"/>
+  <line x1="125" y1="175" x2="160" y2="155" stroke="#E74C3C" stroke-width="1.5" marker-end="url(#arr-r)"/>
+
+  <!-- 2D Gaussians -->
+  <rect x="165" y="100" width="150" height="80" rx="8" fill="#F4ECF7" stroke="#8E44AD" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="240" y="120" text-anchor="middle" font-size="10" font-weight="bold" fill="#6C3483">二维高斯建模</text>
+  <text x="240" y="138" text-anchor="middle" font-size="9" fill="#8E44AD">N(μ₁, Σ₁)  N(μ₂, Σ₂)</text>
+  <text x="240" y="154" text-anchor="middle" font-size="8" fill="#8E44AD">μ=(cx,cy), Σ=[w²/4, 0; 0, h²/4]</text>
+  <text x="240" y="170" text-anchor="middle" font-size="8" fill="#95A5A6">边界框→概率分布</text>
+
+  <line x1="315" y1="140" x2="345" y2="140" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Wasserstein -->
+  <rect x="350" y="100" width="140" height="80" rx="8" fill="#D5F5E3" stroke="#27AE60" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="420" y="120" text-anchor="middle" font-size="10" font-weight="bold" fill="#1E8449">Wasserstein 距离</text>
+  <text x="420" y="140" text-anchor="middle" font-size="9" fill="#27AE60">W² = ‖μ₁−μ₂‖²</text>
+  <text x="420" y="156" text-anchor="middle" font-size="9" fill="#27AE60">+ Σ‖σ₁_i−σ₂_i‖²</text>
+  <text x="420" y="172" text-anchor="middle" font-size="8" fill="#95A5A6">连续平滑的距离度量</text>
+
+  <line x1="490" y1="140" x2="520" y2="140" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- NWD -->
+  <rect x="525" y="105" width="120" height="70" rx="8" fill="#FDEBD0" stroke="#E67E22" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="585" y="125" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">NWD 相似度</text>
+  <text x="585" y="143" text-anchor="middle" font-size="9" fill="#E67E22">exp(−W² / C)</text>
+  <text x="585" y="160" text-anchor="middle" font-size="9" fill="#E67E22">C = 12.8</text>
+
+  <line x1="645" y1="140" x2="675" y2="140" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- L_NWD -->
+  <rect x="680" y="105" width="95" height="70" rx="8" fill="#FFF3E0" stroke="#E67E22" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="727" y="125" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">L_NWD</text>
+  <text x="727" y="143" text-anchor="middle" font-size="9" fill="#E67E22">1 − NWD</text>
+  <text x="727" y="160" text-anchor="middle" font-size="8" fill="#E67E22">∈ [0, 1]</text>
+
+  <!-- Annotation: smooth gradient -->
+  <text x="420" y="200" text-anchor="middle" font-size="9" fill="#27AE60">W²越小 → NWD越接近1 → L_NWD越接近0 (完美匹配)</text>
+  <text x="420" y="216" text-anchor="middle" font-size="9" fill="#27AE60">即使两框无重叠区域，Wasserstein距离仍提供有意义的梯度方向</text>
+
+  <!-- ===== CIOU PATH (bottom) ===== -->
+  <text x="25" y="260" font-size="11" font-weight="bold" fill="#E74C3C">CIoU 损失路径</text>
+
+  <rect x="25" y="272" width="120" height="36" rx="6" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="85" y="288" text-anchor="middle" font-size="10" font-weight="bold" fill="#922B21">预测框 + 真值框</text>
+  <text x="85" y="302" text-anchor="middle" font-size="8" fill="#E74C3C">(x₁,y₁,x₂,y₂)</text>
+
+  <line x1="145" y1="290" x2="170" y2="290" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <rect x="175" y="272" width="130" height="36" rx="6" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="240" y="288" text-anchor="middle" font-size="10" font-weight="bold" fill="#922B21">CIoU 计算</text>
+  <text x="240" y="302" text-anchor="middle" font-size="8" fill="#E74C3C">IoU + 中心距 + 长宽比</text>
+
+  <line x1="305" y1="290" x2="330" y2="290" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <rect x="335" y="272" width="95" height="36" rx="6" fill="#FADBD8" stroke="#E74C3C" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="382" y="288" text-anchor="middle" font-size="10" font-weight="bold" fill="#922B21">L_CIoU</text>
+  <text x="382" y="302" text-anchor="middle" font-size="8" fill="#E74C3C">∈ [0, +∞)</text>
+
+  <!-- ===== FUSION ===== -->
+  <line x1="727" y1="175" x2="727" y2="330" stroke="#E67E22" stroke-width="1.5"/>
+  <line x1="382" y1="308" x2="382" y2="330" stroke="#E74C3C" stroke-width="1.5"/>
+  <line x1="382" y1="330" x2="727" y2="330" stroke="#555" stroke-width="1.5"/>
+
+  <line x1="555" y1="330" x2="555" y2="355" stroke="#555" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- Fusion box -->
+  <rect x="430" y="360" width="250" height="48" rx="8" fill="#D5F5E3" stroke="#27AE60" stroke-width="2.5" filter="url(#sh)"/>
+  <text x="555" y="380" text-anchor="middle" font-size="12" font-weight="bold" fill="#1E8449">融合边界框回归损失</text>
+  <text x="555" y="398" text-anchor="middle" font-size="10" fill="#27AE60">L_box = 0.95 · L_CIoU  +  0.05 · (1 − NWD)</text>
+
+  <!-- ===== KEY PROPERTIES ===== -->
+  <rect x="25" y="360" width="380" height="48" rx="6" fill="#F8F9FA" stroke="#BDC3C7" stroke-width="1"/>
+  <text x="215" y="378" text-anchor="middle" font-size="9" font-weight="bold" fill="#555">NWD 相比 CIoU 的优势</text>
+  <text x="215" y="394" text-anchor="middle" font-size="8" fill="#7F8C8D">① 连续平滑梯度 ② 无需重叠即有有效梯度 ③ 通过协方差自然编码尺度信息</text>
+</svg>
