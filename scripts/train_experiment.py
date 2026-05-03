@@ -231,6 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-nwd", action="store_true")
     parser.add_argument("--nwd-weight", type=float)
     parser.add_argument("--nwd-constant", type=float)
+    parser.add_argument("--iou-type", type=str, default="CIoU", choices=["CIoU", "WIoU"])
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--exist-ok", action="store_true")
     parser.add_argument("--no-pretrained", action="store_true")
@@ -602,10 +603,12 @@ def main() -> int:
     use_nwd = bool(exp.get("use_nwd", False) or args.use_nwd)
     nwd_weight = args.nwd_weight if args.nwd_weight is not None else float(exp.get("nwd_weight", 0.4))
     nwd_constant = args.nwd_constant if args.nwd_constant is not None else float(exp.get("nwd_constant", 12.8))
+    iou_type = args.iou_type if args.iou_type != "CIoU" else exp.get("iou_type", "CIoU")
     if use_nwd:
-        enable_nwd_loss(nwd_weight=nwd_weight, nwd_constant=nwd_constant)
+        enable_nwd_loss(nwd_weight=nwd_weight, nwd_constant=nwd_constant, iou_type=iou_type)
         os.environ["BUBBLE_NWD_WEIGHT"] = str(nwd_weight)
         os.environ["BUBBLE_NWD_CONSTANT"] = str(nwd_constant)
+        os.environ["BUBBLE_IOU_TYPE"] = iou_type
 
     from ultralytics import YOLO
 
@@ -627,7 +630,7 @@ def main() -> int:
     print(f"[train] data={data_path} official_eval_data={official_eval_data_path}")
     print(f"[train] project={project} device={train_args.get('device')}")
     if use_nwd:
-        print(f"[train] NWD enabled weight={nwd_weight} constant={nwd_constant}")
+        print(f"[train] NWD enabled weight={nwd_weight} constant={nwd_constant} iou_type={iou_type}")
 
     run_dir = Path(project) / run_name
     best_pt = run_dir / "weights" / "best.pt"
@@ -870,6 +873,7 @@ def main() -> int:
         "use_nwd": use_nwd,
         "nwd_weight": nwd_weight if use_nwd else 0.0,
         "nwd_constant": nwd_constant if use_nwd else 0.0,
+        "iou_type": iou_type if use_nwd else "CIoU",
         "model_info": info,
         "selection_val_metrics": selection_val_metrics,
         "main_test_metrics": main_test_metrics,

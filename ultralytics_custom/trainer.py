@@ -60,4 +60,5 @@ class BubbleNWDDetectionTrainer(BubbleDetectionTrainer):
         args = getattr(self, "args", None)
         weight = float(os.getenv("BUBBLE_NWD_WEIGHT", getattr(args, "bubble_nwd_weight", 0.4)) or 0.4)
         constant = float(os.getenv("BUBBLE_NWD_CONSTANT", getattr(args, "bubble_nwd_constant", 12.8)) or 12.8)
-        enable_nwd_loss(nwd_weight=weight, nwd_constant=constant)
+        iou_type = os.getenv("BUBBLE_IOU_TYPE", "CIoU")
+        enable_nwd_loss(nwd_weight=weight, nwd_constant=constant, iou_type=iou_type)
