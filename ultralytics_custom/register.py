@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from .bubble_modules import (
+    ChannelWeightedConcat,
     CoordGate,
     ECAGate,
     GDFN,
     GLRB,
+    LCRefine,
     MDTA,
     MSLRefine,
     P3CAGate,
@@ -15,6 +17,7 @@ from .bubble_modules import (
     P3SAGate,
     SSBRefine,
     SimAMGate,
+    WeightedConcat,
     LayerNorm2d,
 )
 
@@ -26,11 +29,14 @@ def register_bubble_modules() -> None:
 
     custom = {
         "SSBRefine": SSBRefine,
+        "LCRefine": LCRefine,
         "MSLRefine": MSLRefine,
         "P3CAGate": P3CAGate,
         "P3SAGate": P3SAGate,
         "P3LCRefine": P3LCRefine,
         "P3MLCRefine": P3MLCRefine,
+        "WeightedConcat": WeightedConcat,
+        "ChannelWeightedConcat": ChannelWeightedConcat,
         "ECAGate": ECAGate,
         "CoordGate": CoordGate,
         "SimAMGate": SimAMGate,

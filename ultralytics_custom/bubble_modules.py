@@ -164,8 +164,8 @@ class P3SAGate(nn.Module):
         return y if self.shortcut else y - x
 
 
-class P3LCRefine(nn.Module):
-    """Shape-preserving local-contrast residual refine block for the P3 feature."""
+class LCRefine(nn.Module):
+    """Shape-preserving local-contrast residual refine block."""
 
     def __init__(
         self,
@@ -176,7 +176,7 @@ class P3LCRefine(nn.Module):
     ) -> None:
         super().__init__()
         if kernel_size % 2 == 0:
-            raise ValueError("P3LCRefine kernel_size must be odd")
+            raise ValueError(f"{self.__class__.__name__} kernel_size must be odd")
         self.c1 = int(c1)
         self.pool = nn.AvgPool2d(
             kernel_size=kernel_size,
@@ -198,10 +198,97 @@ class P3LCRefine(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[1] != self.c1:
-            raise RuntimeError(f"P3LCRefine expected {self.c1} channels, got {x.shape[1]}")
+            raise RuntimeError(f"{self.__class__.__name__} expected {self.c1} channels, got {x.shape[1]}")
         contrast = x - self.pool(x)
         y = self.gamma * self.dw(contrast)
         return x + y if self.shortcut else y
+
+
+class P3LCRefine(LCRefine):
+    """Backward-compatible local-contrast refine block name for P3 configs."""
+
+
+class WeightedConcat(nn.Module):
+    """Learnable branch reweighting for an existing concatenated neck feature."""
+
+    def __init__(
+        self,
+        split_channels: list[int] | tuple[int, ...],
+        dim: int = 1,
+    ) -> None:
+        super().__init__()
+        channels = [int(c) for c in split_channels]
+        if len(channels) < 2:
+            raise ValueError("WeightedConcat requires at least two branch channel sizes")
+        if any(c <= 0 for c in channels):
+            raise ValueError(f"WeightedConcat channel sizes must be positive, got {channels}")
+        self.split_channels = channels
+        self.dim = int(dim)
+        self.logits = nn.Parameter(torch.zeros(len(channels)))
+
+    def _split(self, x: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> list[torch.Tensor]:
+        if isinstance(x, (list, tuple)):
+            parts = list(x)
+            if len(parts) != len(self.split_channels):
+                raise RuntimeError(f"WeightedConcat expected {len(self.split_channels)} tensors, got {len(parts)}")
+            for part, channels in zip(parts, self.split_channels, strict=True):
+                if part.shape[self.dim] != channels:
+                    raise RuntimeError(f"WeightedConcat expected branch width {channels}, got {part.shape[self.dim]}")
+            return parts
+
+        expected = sum(self.split_channels)
+        if x.shape[self.dim] != expected:
+            raise RuntimeError(f"WeightedConcat expected {expected} channels, got {x.shape[self.dim]}")
+        return list(torch.split(x, self.split_channels, dim=self.dim))
+
+    def forward(self, x: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> torch.Tensor:
+        parts = self._split(x)
+        scales = torch.softmax(self.logits, dim=0).to(dtype=parts[0].dtype) * len(parts)
+        return torch.cat([part * scales[i] for i, part in enumerate(parts)], dim=self.dim)
+
+
+class ChannelWeightedConcat(nn.Module):
+    """Per-channel branch reweighting for an existing concatenated neck feature."""
+
+    def __init__(
+        self,
+        split_channels: list[int] | tuple[int, ...],
+        gamma_init: float = 0.1,
+    ) -> None:
+        super().__init__()
+        channels = [int(c) for c in split_channels]
+        if len(channels) < 2:
+            raise ValueError("ChannelWeightedConcat requires at least two branch channel sizes")
+        if any(c <= 0 for c in channels):
+            raise ValueError(f"ChannelWeightedConcat channel sizes must be positive, got {channels}")
+        self.split_channels = channels
+        self.deltas = nn.ParameterList([nn.Parameter(torch.zeros(1, c, 1, 1)) for c in channels])
+        self.gamma = nn.Parameter(torch.tensor(float(gamma_init)))
+
+    def _split(self, x: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> list[torch.Tensor]:
+        if isinstance(x, (list, tuple)):
+            parts = list(x)
+            if len(parts) != len(self.split_channels):
+                raise RuntimeError(f"ChannelWeightedConcat expected {len(self.split_channels)} tensors, got {len(parts)}")
+            for part, channels in zip(parts, self.split_channels, strict=True):
+                if part.shape[1] != channels:
+                    raise RuntimeError(
+                        f"ChannelWeightedConcat expected branch width {channels}, got {part.shape[1]}"
+                    )
+            return parts
+
+        expected = sum(self.split_channels)
+        if x.shape[1] != expected:
+            raise RuntimeError(f"ChannelWeightedConcat expected {expected} channels, got {x.shape[1]}")
+        return list(torch.split(x, self.split_channels, dim=1))
+
+    def forward(self, x: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> torch.Tensor:
+        parts = self._split(x)
+        weighted = []
+        for part, delta in zip(parts, self.deltas, strict=True):
+            scale = torch.exp((self.gamma * torch.tanh(delta)).to(dtype=part.dtype))
+            weighted.append(part * scale)
+        return torch.cat(weighted, dim=1)
 
 
 class P3MLCRefine(nn.Module):

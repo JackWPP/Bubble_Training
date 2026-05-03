@@ -68,8 +68,6 @@ def enable_nwd_loss(nwd_weight: float = 0.4, nwd_constant: float = 12.8) -> None
         target_scores: torch.Tensor,
         target_scores_sum: torch.Tensor,
         fg_mask: torch.Tensor,
-        imgsz: torch.Tensor,
-        stride: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
         pred_fg = pred_bboxes[fg_mask]
@@ -86,18 +84,7 @@ def enable_nwd_loss(nwd_weight: float = 0.4, nwd_constant: float = 12.8) -> None
             loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
             loss_dfl = loss_dfl.sum() / target_scores_sum
         else:
-            target_ltrb = bbox2dist(anchor_points, target_bboxes)
-            target_ltrb = target_ltrb * stride
-            target_ltrb[..., 0::2] /= imgsz[1]
-            target_ltrb[..., 1::2] /= imgsz[0]
-            pred_dist_norm = pred_dist * stride
-            pred_dist_norm[..., 0::2] /= imgsz[1]
-            pred_dist_norm[..., 1::2] /= imgsz[0]
-            loss_dfl = (
-                F.l1_loss(pred_dist_norm[fg_mask], target_ltrb[fg_mask], reduction="none").mean(-1, keepdim=True)
-                * weight
-            )
-            loss_dfl = loss_dfl.sum() / target_scores_sum
+            loss_dfl = torch.tensor(0.0).to(pred_dist.device)
 
         return loss_box, loss_dfl
 

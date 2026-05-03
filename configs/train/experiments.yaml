@@ -268,6 +268,102 @@ experiments:
     modules: paper-v4-remap-P3SAGate-gamma001+P3MLCRefine-gamma100
     use_nwd: false
     train_config: configs/train/paper_v4_remap_finetune_lr0002_e30.yaml
+  PV4R12C_P3LC_REMAP_G100_E15:
+    name: PV4R12C_P3LC_REMAP_G100_E15
+    model: configs/models/bubble_yolo11s_p3_lc_gamma100.yaml
+    modules: paper-v4-remap-P3LCRefine-gamma100-e15-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e15_safe.yaml
+  PV4R6B_MSL_P3_REMAP_G0005_E15:
+    name: PV4R6B_MSL_P3_REMAP_G0005_E15
+    model: configs/models/bubble_yolo11s_msl_p3_gamma0005.yaml
+    modules: paper-v4-remap-MSLRefine-gamma0005-e15-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e15_safe.yaml
+  PV4R21_P3LC_NWD_W02_E15:
+    name: PV4R21_P3LC_NWD_W02_E15
+    model: configs/models/bubble_yolo11s_p3_lc_gamma100.yaml
+    modules: paper-v4-remap-P3LCRefine-gamma100+NWD-w02-e15-safe
+    use_nwd: true
+    nwd_weight: 0.2
+    nwd_constant: 12.8
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e15_safe.yaml
+  PV4R22_MSL_NWD_W02_E15:
+    name: PV4R22_MSL_NWD_W02_E15
+    model: configs/models/bubble_yolo11s_msl_p3_gamma0005.yaml
+    modules: paper-v4-remap-MSLRefine-gamma0005+NWD-w02-e15-safe
+    use_nwd: true
+    nwd_weight: 0.2
+    nwd_constant: 12.8
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e15_safe.yaml
+  PV4R23_P3LC_NWD_W01_E15:
+    name: PV4R23_P3LC_NWD_W01_E15
+    model: configs/models/bubble_yolo11s_p3_lc_gamma100.yaml
+    modules: paper-v4-remap-P3LCRefine-gamma100+NWD-w01-e15-safe
+    use_nwd: true
+    nwd_weight: 0.1
+    nwd_constant: 12.8
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e15_safe.yaml
+  PV4R24_P3SA_P3LC_REMAP_E5:
+    name: PV4R24_P3SA_P3LC_REMAP_E5
+    model: configs/models/bubble_yolo11s_p3_sa_lc_gamma001_100.yaml
+    modules: paper-v4-remap-P3SAGate-gamma001+P3LCRefine-gamma100-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R25_P3CA_P3SA_REMAP_G002_E5:
+    name: PV4R25_P3CA_P3SA_REMAP_G002_E5
+    model: configs/models/bubble_yolo11s_p3_ca_sa_gamma002.yaml
+    modules: paper-v4-remap-P3CAGate+P3SAGate-gamma002-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R26_P4LC_REMAP_G100_E5:
+    name: PV4R26_P4LC_REMAP_G100_E5
+    model: configs/models/bubble_yolo11s_p4_lc_gamma100.yaml
+    modules: paper-v4-remap-LCRefine-P4-gamma100-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R27_P3P4LC_REMAP_G100_E5:
+    name: PV4R27_P3P4LC_REMAP_G100_E5
+    model: configs/models/bubble_yolo11s_p3_p4_lc_gamma100.yaml
+    modules: paper-v4-remap-LCRefine-P3+P4-gamma100-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R28_SKIPP3LC_REMAP_G100_E5:
+    name: PV4R28_SKIPP3LC_REMAP_G100_E5
+    model: configs/models/bubble_yolo11s_skip_p3_lc_gamma100.yaml
+    modules: paper-v4-remap-LCRefine-backbone-skip-P3-gamma100-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R29_SKIPP4LC_REMAP_G100_E5:
+    name: PV4R29_SKIPP4LC_REMAP_G100_E5
+    model: configs/models/bubble_yolo11s_skip_p4_lc_gamma100.yaml
+    modules: paper-v4-remap-LCRefine-backbone-skip-P4-gamma100-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R30_SKIPP3P4LC_REMAP_G100_E5:
+    name: PV4R30_SKIPP3P4LC_REMAP_G100_E5
+    model: configs/models/bubble_yolo11s_skip_p3_p4_lc_gamma100.yaml
+    modules: paper-v4-remap-LCRefine-backbone-skip-P3+P4-gamma100-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R31_WCONCAT_REMAP_E5:
+    name: PV4R31_WCONCAT_REMAP_E5
+    model: configs/models/bubble_yolo11s_wconcat_neck.yaml
+    modules: paper-v4-remap-WeightedConcat-neck-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R32_P3LC_WCONCAT_REMAP_E5:
+    name: PV4R32_P3LC_WCONCAT_REMAP_E5
+    model: configs/models/bubble_yolo11s_p3lc_wconcat_neck.yaml
+    modules: paper-v4-remap-P3LCRefine+WeightedConcat-neck-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
+  PV4R33_P3LC_CWCONCAT_REMAP_E5:
+    name: PV4R33_P3LC_CWCONCAT_REMAP_E5
+    model: configs/models/bubble_yolo11s_p3lc_cwconcat_neck.yaml
+    modules: paper-v4-remap-P3LCRefine+ChannelWeightedConcat-neck-e5-safe
+    use_nwd: false
+    train_config: configs/train/paper_v4_remap_finetune_lr0002_e5_safe.yaml
   E0:
     name: E0_yolo11s_baseline
     model: yolo11s.pt
