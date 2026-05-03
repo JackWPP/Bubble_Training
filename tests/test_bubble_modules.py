@@ -18,6 +18,8 @@ from ultralytics_custom.bubble_modules import (
     SimAMGate,
     WeightedConcat,
 )
+from ultralytics_custom import register_bubble_modules
+from ultralytics_custom.weight_transfer import supports_bubble_remap
 
 
 def test_ssb_refine_shape_and_backward():
@@ -222,3 +224,14 @@ def test_nwd_loss_patch_matches_current_ultralytics_signature():
         assert torch.isfinite(loss_dfl)
     finally:
         disable_nwd_loss()
+
+
+def test_p2_p3_p4_lite_topology_supports_partial_remap():
+    from ultralytics.nn.tasks import DetectionModel
+
+    register_bubble_modules()
+    model = DetectionModel("configs/models/bubble_yolo11s_p2_p3_p4_lite.yaml", nc=1, ch=3, verbose=False)
+    assert supports_bubble_remap(model)
+    assert len(model.model) == 27
+    assert model.model[-1].__class__.__name__ == "Detect"
+    assert len(model.model[-1].stride) == 3

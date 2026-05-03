@@ -93,6 +93,38 @@ def _layer_mapping(model: nn.Module) -> dict[int, int] | None:
     if count < 24 or names[0] != "Conv":
         return None
 
+    # P2-P3-P4 lite keeps the YOLO11s backbone and first two top-down FPN
+    # stages, then replaces the P5 head branch with a lightweight P2 branch.
+    if (
+        count == 27
+        and names[26] == "Detect"
+        and names[:17] == _YOLO11S_BASELINE_NAMES[:17]
+        and names[17:26]
+        == ["Upsample", "Concat", "C3k2", "Conv", "Concat", "C3k2", "Conv", "Concat", "C3k2"]
+    ):
+        return {
+            0: 0,
+            1: 1,
+            2: 2,
+            3: 3,
+            4: 4,
+            5: 5,
+            6: 6,
+            7: 7,
+            8: 8,
+            9: 9,
+            10: 10,
+            11: 11,
+            12: 12,
+            13: 13,
+            14: 14,
+            15: 15,
+            16: 16,
+            17: 23,
+            18: 24,
+            19: 25,
+        }
+
     mapping = {i: i for i in range(17)}
 
     # One P3 refinement block inserted after baseline layer 16.
@@ -160,6 +192,20 @@ def _layer_mapping(model: nn.Module) -> dict[int, int] | None:
     return _inserted_module_mapping(names)
 
 
+def _is_p2_p3_p4_lite(model: nn.Module) -> bool:
+    layers = getattr(model, "model", None)
+    if layers is None:
+        return False
+    names = [_class_name(model, i) for i in range(len(layers))]
+    return (
+        len(names) == 27
+        and names[26] == "Detect"
+        and names[:17] == _YOLO11S_BASELINE_NAMES[:17]
+        and names[17:26]
+        == ["Upsample", "Concat", "C3k2", "Conv", "Concat", "C3k2", "Conv", "Concat", "C3k2"]
+    )
+
+
 def supports_bubble_remap(model: nn.Module) -> bool:
     """Return True when the target model is a supported inserted Bubble topology."""
     return _layer_mapping(model) is not None
@@ -205,6 +251,35 @@ def load_bubble_remapped_weights(model: nn.Module, weights: str | Path | nn.Modu
             mismatched.append((source_key, target_key, tuple(value.shape), tuple(target_state[target_key].shape)))
             continue
         updates[target_key] = value
+
+    if _is_p2_p3_p4_lite(model):
+        detect_prefixes = (
+            ("model.23.cv2.0.", "model.26.cv2.1."),
+            ("model.23.cv2.1.", "model.26.cv2.2."),
+            ("model.23.cv3.0.", "model.26.cv3.1."),
+            ("model.23.cv3.1.", "model.26.cv3.2."),
+            ("model.23.dfl.", "model.26.dfl."),
+        )
+        for source_key, value in source_state.items():
+            for source_prefix, target_prefix in detect_prefixes:
+                if not source_key.startswith(source_prefix):
+                    continue
+                target_key = target_prefix + source_key[len(source_prefix) :]
+                if target_key not in target_state:
+                    missing.append((source_key, target_key))
+                    continue
+                if target_state[target_key].shape != value.shape:
+                    mismatched.append((source_key, target_key, tuple(value.shape), tuple(target_state[target_key].shape)))
+                    continue
+                updates[target_key] = value
+                break
+        # The P2 Detect branch has no source counterpart. Keep it initially
+        # quiet so the inherited P3/P4 heads define the starting detector and
+        # the new high-resolution branch learns in instead of flooding NMS with
+        # low-quality positives.
+        p2_cls_bias_key = "model.26.cv3.0.2.bias"
+        if p2_cls_bias_key in target_state:
+            updates[p2_cls_bias_key] = target_state[p2_cls_bias_key].clone().fill_(-12.0)
 
     model.load_state_dict(updates, strict=False)
     stats = {

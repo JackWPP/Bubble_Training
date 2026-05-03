@@ -103,6 +103,42 @@ def parse_device(value: Any) -> Any:
     return value
 
 
+def requested_cuda_device(value: Any) -> bool:
+    """Return True when the requested Ultralytics device requires CUDA."""
+    if value is None:
+        return False
+    if isinstance(value, int):
+        return value >= 0
+    if isinstance(value, (list, tuple)):
+        return any(requested_cuda_device(item) for item in value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"", "none", "cpu", "mps"}:
+            return False
+        if text.startswith("cuda"):
+            return True
+        if "," in text:
+            return any(requested_cuda_device(part.strip()) for part in text.split(","))
+        try:
+            return int(text) >= 0
+        except ValueError:
+            return False
+    return False
+
+
+def ensure_requested_device_available(value: Any) -> None:
+    if not requested_cuda_device(value):
+        return
+    import torch
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            f"CUDA device {value!r} was requested, but torch.cuda.is_available() is False. "
+            "Refusing to continue because this would risk a slow CPU training/evaluation run. "
+            "Check the NVIDIA driver with nvidia-smi or rerun with --device cpu explicitly."
+        )
+
+
 def ensure_repo_pythonpath() -> None:
     """Make repo-local modules importable from Ultralytics DDP temp scripts."""
     root = str(ROOT)
@@ -226,6 +262,7 @@ def val_model(
         "project": str(project),
         "name": name,
         "exist_ok": True,
+        "plots": False,
     }
     if conf is not None:
         val_args["conf"] = conf
@@ -560,6 +597,7 @@ def main() -> int:
     train_args = {key: config[key] for key in TRAIN_KEYS if key in config}
     train_args.update(overrides)
     train_args["device"] = parse_device(train_args.get("device"))
+    ensure_requested_device_available(train_args.get("device"))
 
     use_nwd = bool(exp.get("use_nwd", False) or args.use_nwd)
     nwd_weight = args.nwd_weight if args.nwd_weight is not None else float(exp.get("nwd_weight", 0.4))
