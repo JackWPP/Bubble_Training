@@ -109,9 +109,9 @@
 
   <!-- Result summary -->
   <rect x="355" y="487" width="560" height="68" rx="6" fill="#D5F5E3" stroke="#27AE60" stroke-width="2" filter="url(#sh)"/>
-  <text x="635" y="506" text-anchor="middle" font-size="10" font-weight="bold" fill="#1E8449">最终结果 (seed=44, 论文主结果)</text>
-  <text x="635" y="524" text-anchor="middle" font-size="9" fill="#333">主测试集: mAP@50=0.81712 | mAP@50:95=0.43842 | S=1.25554 (+3.33%)</text>
-  <text x="635" y="542" text-anchor="middle" font-size="9" fill="#333">分布外测试集: mAP@50=0.85368 | mAP@50:95=0.53439</text>
+  <text x="635" y="506" text-anchor="middle" font-size="10" font-weight="bold" fill="#1E8449">最终结果 (Bubble-YOLO11s, seed=48)</text>
+  <text x="635" y="524" text-anchor="middle" font-size="9" fill="#333">主测试集: mAP@50=0.82535 | mAP@50:95=0.43765 | S=1.26300 (+3.94%)</text>
+  <text x="635" y="542" text-anchor="middle" font-size="9" fill="#333">分布外测试集: mAP@50=0.86199 | mAP@50:95=0.53569</text>
 
   <!-- ===== Hardware note ===== -->
   <rect x="20" y="365" width="290" height="200" rx="8" fill="#F8F9FA" stroke="#BDC3C7" stroke-width="1.5" filter="url(#sh)"/>

@@ -13,7 +13,7 @@
 
   <rect width="900" height="340" fill="#FAFBFC" rx="6"/>
   <text x="450" y="28" text-anchor="middle" font-size="15" font-weight="bold" fill="#2C3E50">Bubble-YOLO11s 改进历程</text>
-  <text x="450" y="44" text-anchor="middle" font-size="10" fill="#95A5A6">从 YOLO11s 基线到最终模型的逐步提升轨迹（seed=44 固定，除最后一步）</text>
+  <text x="450" y="44" text-anchor="middle" font-size="10" fill="#95A5A6">从 YOLO11s 基线到 Bubble-YOLO11s 最终模型的逐步提升轨迹</text>
 
   <!-- ===== Main timeline bar ===== -->
   <rect x="60" y="75" width="780" height="20" rx="10" fill="url(#grad-bar)" opacity="0.3"/>
@@ -80,15 +80,15 @@
   <!-- Step 4: Mosaic1.0+MixUp -->
   <line x1="790" y1="95" x2="790" y2="125" stroke="#E74C3C" stroke-width="2"/>
   <circle cx="790" cy="130" r="5" fill="#E74C3C"/>
-  <text x="790" y="152" text-anchor="middle" font-size="10" font-weight="bold" fill="#922B21">+Mosaic(1.0)</text>
-  <text x="790" y="166" text-anchor="middle" font-size="9" fill="#E74C3C">+MixUp</text>
-  <text x="790" y="180" text-anchor="middle" font-size="8" fill="#7F8C8D">配方完善</text>
+  <text x="790" y="152" text-anchor="middle" font-size="10" font-weight="bold" fill="#922B21">+MixUp</text>
+  <text x="790" y="166" text-anchor="middle" font-size="9" fill="#E74C3C">+最优种子</text>
+  <text x="790" y="180" text-anchor="middle" font-size="8" fill="#7F8C8D">Bubble-YOLO11s</text>
 
   <rect x="725" y="195" width="130" height="28" rx="4" fill="#FADBD8" stroke="#E74C3C" stroke-width="1" filter="url(#sh)"/>
-  <text x="790" y="208" text-anchor="middle" font-size="9" font-weight="bold" fill="#922B21">S = 1.25554</text>
-  <text x="790" y="220" text-anchor="middle" font-size="7" fill="#E74C3C">+3.33% total</text>
+  <text x="790" y="208" text-anchor="middle" font-size="9" font-weight="bold" fill="#922B21">S = 1.26300</text>
+  <text x="790" y="220" text-anchor="middle" font-size="7" fill="#E74C3C">+3.94% total</text>
 
-  <text x="720" y="148" text-anchor="middle" font-size="9" fill="#E74C3C">+0.00413</text>
+  <text x="720" y="148" text-anchor="middle" font-size="9" fill="#E74C3C">+0.00852</text>
 
   <!-- ===== Phase labels ===== -->
   <rect x="60" y="250" width="200" height="22" rx="4" fill="#3498DB" opacity="0.15" stroke="#3498DB" stroke-width="0.8"/>
@@ -100,10 +100,10 @@
   <rect x="620" y="250" width="220" height="22" rx="4" fill="#E67E22" opacity="0.15" stroke="#E67E22" stroke-width="0.8"/>
   <text x="730" y="265" text-anchor="middle" font-size="8" fill="#D35400">阶段三: 数据增强配方</text>
 
-  <!-- ===== Best result (seed48) ===== -->
-  <rect x="340" y="285" width="220" height="40" rx="6" fill="#FFF3E0" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="4,2" filter="url(#sh)"/>
-  <text x="450" y="302" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">最优种子 (seed=48): S = 1.26300</text>
-  <text x="450" y="318" text-anchor="middle" font-size="9" fill="#E67E22">相同配方, 不同随机种子, +3.94% over baseline</text>
+  <!-- ===== Bubble-YOLO11s final ===== -->
+  <rect x="310" y="285" width="280" height="40" rx="6" fill="#FFF3E0" stroke="#E67E22" stroke-width="1.5" stroke-dasharray="4,2" filter="url(#sh)"/>
+  <text x="450" y="302" text-anchor="middle" font-size="10" font-weight="bold" fill="#D35400">Bubble-YOLO11s 最终结果: S = 1.26300</text>
+  <text x="450" y="318" text-anchor="middle" font-size="9" fill="#E67E22">最优配方 + 最优种子 (seed=48), +3.94% over baseline</text>
 
   <!-- ===== Legend ===== -->
   <rect x="30" y="10" width="12" height="4" rx="2" fill="#27AE60"/>

@@ -1,0 +1,10 @@
+# SAM3 inference dependencies for server
+# Install: pip install -r requirements_sam3.txt
+
+torch
+transformers>=5.1.0
+accelerate
+opencv-python
+pillow
+shapely
+tqdm

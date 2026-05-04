@@ -2,23 +2,7 @@
 
 ## 论文推荐使用的权重
 
-### 主结果 (seed=44, 论文使用)
-
-```
-runs/bubble_paper_v4_coco_aug/PV4C1_P3LC_COCO_NWD_W005_MOSAIC10_HSV_MIXUP_E30_seed44/weights/map50_selected.pt
-```
-
-| 指标 | 值 |
-|------|-----|
-| 主测试集 mAP@50 | 0.81712 |
-| 主测试集 mAP@50:95 | 0.43842 |
-| 主测试集综合指标 S | 1.25554 |
-| OOD mAP@50 | 0.85368 |
-| OOD mAP@50:95 | 0.53439 |
-| 参数量 | 9,415,621 |
-| FLOPs | ~21.3G |
-
-### 最佳结果 (seed=48, 附录/补充)
+### 主结果 (seed=48, 论文使用)
 
 ```
 runs/bubble_paper_v4_coco_aug/PV4C1_P3LC_COCO_NWD_W005_MOSAIC10_HSV_MIXUP_E30_seed48/weights/map50_selected.pt
@@ -31,6 +15,22 @@ runs/bubble_paper_v4_coco_aug/PV4C1_P3LC_COCO_NWD_W005_MOSAIC10_HSV_MIXUP_E30_se
 | 主测试集综合指标 S | 1.26300 |
 | OOD mAP@50 | 0.86199 |
 | OOD mAP@50:95 | 0.53569 |
+| 参数量 | 9,415,621 |
+| FLOPs | ~21.3G |
+
+### 参考结果 (seed=44)
+
+```
+runs/bubble_paper_v4_coco_aug/PV4C1_P3LC_COCO_NWD_W005_MOSAIC10_HSV_MIXUP_E30_seed44/weights/map50_selected.pt
+```
+
+| 指标 | 值 |
+|------|-----|
+| 主测试集 mAP@50 | 0.81712 |
+| 主测试集 mAP@50:95 | 0.43842 |
+| 主测试集综合指标 S | 1.25554 |
+| OOD mAP@50 | 0.85368 |
+| OOD mAP@50:95 | 0.53439 |
 
 ---
 

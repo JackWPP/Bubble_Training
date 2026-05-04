@@ -71,3 +71,18 @@ best*/
 .omx/state/notify-hook-state.json
 .omx/state/tmux-hook-state.json
 yolo_dataset_paper_v4
+
+# Segmentation exploration
+segmentation/datasets/
+segmentation/runs/
+segmentation/sam3.pt
+segmentation/sam3_b.pt
+segmentation/*.pt
+segmentation/*.zip
+segmentation/generate_masks_summary.json
+segmentation/test_*.jpg
+segmentation/test_*.png
+!segmentation/**/*.py
+!segmentation/**/*.yaml
+!segmentation/**/*.md
+!segmentation/**/*.txt
