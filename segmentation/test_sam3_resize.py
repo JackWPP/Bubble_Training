@@ -5,13 +5,13 @@ from PIL import Image
 import torch, numpy as np, cv2
 from transformers import Sam3Model, Sam3Processor
 
-MODEL = "/mnt/g/Files/SAM3/sam3"
+MODEL = "/home/xgx/sam3"
 MAX_DIM = 1536
 
 # Load a large image from big_fengchao
-coco = json.load(open("/mnt/g/Bubble_Train/Dataset/big_fengchao/annotations/instances_default.json"))
+coco = json.load(open("/home/xgx/Bubble_Training/Dataset/big_fengchao/annotations/instances_default.json"))
 img_info = coco["images"][0]
-img_path = "/mnt/g/Bubble_Train/Dataset/big_fengchao/images/default/" + img_info["file_name"]
+img_path = "/home/xgx/Bubble_Training/Dataset/big_fengchao/images/default/" + img_info["file_name"]
 print(f"Image: {img_info['file_name']} ({img_info['width']}x{img_info['height']})")
 
 image = Image.open(img_path).convert("RGB")

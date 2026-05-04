@@ -2,7 +2,7 @@
 task: segment
 mode: train
 model: null  # Set via CLI
-data: G:/Bubble_Train/segmentation/datasets/paper_v4_seg/bubble_seg.yaml
+data: /home/xgx/Bubble_Training/segmentation/datasets/paper_v4_seg/bubble_seg.yaml
 
 epochs: 100
 batch: 4

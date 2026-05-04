@@ -66,7 +66,7 @@ def main():
     # Load training config overrides
     overrides = {
         "model": args.model,
-        "data": "G:/Bubble_Train/segmentation/datasets/paper_v4_seg/bubble_seg.yaml",
+        "data": "/home/xgx/Bubble_Training/segmentation/datasets/paper_v4_seg/bubble_seg.yaml",
         "device": args.device,
     }
 

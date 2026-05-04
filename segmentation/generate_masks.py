@@ -1,8 +1,8 @@
-"""Generate segmentation masks via SAM3 box prompts. Run in WSL.
+"""Generate segmentation masks via SAM3 box prompts.
 
 Usage:
-    cd /mnt/g/Bubble_Train/segmentation
-    /home/root/sam3_env/bin/python generate_masks.py
+    cd /home/xgx/Bubble_Training/segmentation
+    python generate_masks.py
 
 Input:  Dataset/*/annotations/instances_default.json (bbox only)
 Output: Dataset/*/annotations/instances_default_segmented.json (bbox + segmentation)
@@ -10,6 +10,7 @@ Output: Dataset/*/annotations/instances_default_segmented.json (bbox + segmentat
 
 from __future__ import annotations
 
+import gc
 import json
 import sys
 import time
@@ -24,8 +25,8 @@ from tqdm import tqdm
 from transformers import Sam3Model, Sam3Processor
 
 # ====== CONFIGURE THESE PATHS FOR YOUR SERVER ======
-MODEL_PATH = "/mnt/g/Files/SAM3/sam3"       # Directory containing model.safetensors + config.json
-DATASET_DIR = Path("/mnt/g/Bubble_Train/Dataset")  # Directory containing COCO JSON data sources
+MODEL_PATH = "/home/xgx/sam3"       # Directory containing model.safetensors + config.json
+DATASET_DIR = Path("/home/xgx/Bubble_Training/Dataset")  # Directory containing COCO JSON data sources
 # ===================================================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -133,18 +134,21 @@ def process_source(source_name: str, model: Sam3Model, processor: Sam3Processor)
         print(f"  SKIP: {coco_path} not found")
         return {"status": "skipped", "reason": "not found"}
 
-    # Resume: skip if output already exists
     out_path = DATASET_DIR / source_name / "annotations" / "instances_default_segmented.json"
+
+    # Resume: skip only if output exists AND all annotations have segmentation
     if out_path.exists():
         with open(out_path) as f:
-            existing = json.load(f)
-        existing_segs = sum(1 for a in existing.get("annotations", []) if a.get("segmentation") and a["segmentation"] != [[]])
-        total = len(existing.get("annotations", []))
-        print(f"  SKIP: already processed ({existing_segs}/{total} have segmentation)")
-        return {"status": "skipped", "reason": "already done", "existing_segmented": existing_segs}
-
-    with open(coco_path) as f:
-        coco = json.load(f)
+            coco = json.load(f)
+        existing_segs = sum(1 for a in coco.get("annotations", []) if a.get("segmentation") and a["segmentation"] != [[]])
+        total = len(coco.get("annotations", []))
+        if existing_segs >= total:
+            print(f"  SKIP: already processed ({existing_segs}/{total} have segmentation)")
+            return {"status": "skipped", "reason": "already done", "existing_segmented": existing_segs}
+        print(f"  Resume: {existing_segs}/{total} already have segmentation, processing remaining")
+    else:
+        with open(coco_path) as f:
+            coco = json.load(f)
 
     images = coco["images"]
     annotations = coco["annotations"]
@@ -223,6 +227,11 @@ def process_source(source_name: str, model: Sam3Model, processor: Sam3Processor)
             print(f"\n  ERROR: {img_info['file_name']}: {e}")
             sam3_masks, sam3_boxes, sam3_scores = [], [], []
 
+        # Free GPU tensors from concept phase
+        for _v in ("outputs", "results", "inputs"):
+            _obj = locals().get(_v)
+            if _obj is not None:
+                del _obj
         torch.cuda.empty_cache()
 
         # Phase 2: Match SAM3 masks to annotation bboxes
@@ -287,6 +296,13 @@ def process_source(source_name: str, model: Sam3Model, processor: Sam3Processor)
                                 fallback_count += 1
                 except Exception as e:
                     pass  # Individual single-box fallback below
+                finally:
+                    # Free tensors after each batch
+                    for v in ["outputs", "results", "inputs", "b_masks", "b_boxes", "b_scores"]:
+                        _v = locals().pop(v, None)
+                        if _v is not None:
+                            del _v
+                    torch.cuda.empty_cache()
 
         # Phase 5: Last-resort single-box fallback for any remaining unmatched
         for ann in img_anns:
@@ -304,7 +320,17 @@ def process_source(source_name: str, model: Sam3Model, processor: Sam3Processor)
             else:
                 failed_count += 1
 
-    # Save enhanced COCO JSON
+        # Free image and mask tensors, run garbage collection
+        del image, sam3_masks, sam3_boxes, sam3_scores
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Incremental save after each image (survives OOM kills)
+        out_path = DATASET_DIR / source_name / "annotations" / "instances_default_segmented.json"
+        with open(out_path, "w") as f:
+            json.dump(coco, f, indent=2, ensure_ascii=False)
+
+    # Final save
     out_path = DATASET_DIR / source_name / "annotations" / "instances_default_segmented.json"
     with open(out_path, "w") as f:
         json.dump(coco, f, indent=2, ensure_ascii=False)
@@ -396,7 +422,7 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}, VRAM: {mem:.1f} GB")
 
     print(f"\nLoading SAM3 from {MODEL_PATH} ...")
-    model = Sam3Model.from_pretrained(MODEL_PATH).to(DEVICE).eval()
+    model = Sam3Model.from_pretrained(MODEL_PATH, low_cpu_mem_usage=True).to(DEVICE).eval()
     processor = Sam3Processor.from_pretrained(MODEL_PATH)
     print("SAM3 loaded.\n")
 
@@ -420,7 +446,7 @@ def main():
     print(f"Summary: {json.dumps(summary, indent=2)}")
 
     # Save summary
-    summary_path = Path("/mnt/g/Bubble_Train/segmentation/generate_masks_summary.json")
+    summary_path = Path("/home/xgx/Bubble_Training/segmentation/generate_masks_summary.json")
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"Summary saved to: {summary_path}")

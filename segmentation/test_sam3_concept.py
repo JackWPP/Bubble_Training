@@ -5,8 +5,8 @@ import cv2, numpy as np, torch
 from PIL import Image
 from transformers import Sam3Model, Sam3Processor
 
-MODEL_PATH = "/mnt/g/Files/SAM3/sam3"
-DATASET_DIR = Path("/mnt/g/Bubble_Train/Dataset")
+MODEL_PATH = "/home/xgx/sam3"
+DATASET_DIR = Path("/home/xgx/Bubble_Training/Dataset")
 SOURCE = "20+40"
 
 # Load COCO
@@ -97,6 +97,6 @@ for i, (mask, pred_box) in enumerate(zip(masks, pred_boxes)):
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(img_bgr, contours, -1, (255, 0, 0), 1)
 
-out = Path("/mnt/g/Bubble_Train/segmentation/test_concept_match.jpg")
+out = Path("/home/xgx/Bubble_Training/segmentation/test_concept_match.jpg")
 cv2.imwrite(str(out), img_bgr)
 print(f"Saved: {out}")

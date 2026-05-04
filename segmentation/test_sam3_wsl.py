@@ -6,8 +6,8 @@ from PIL import Image
 from transformers import Sam3Model, Sam3Processor
 
 # ====== CONFIGURE THESE PATHS FOR YOUR SERVER ======
-MODEL_PATH = "/mnt/g/Files/SAM3/sam3"
-DATASET_DIR = Path("/mnt/g/Bubble_Train/Dataset")
+MODEL_PATH = "/home/xgx/sam3"
+DATASET_DIR = Path("/home/xgx/Bubble_Training/Dataset")
 # ===================================================
 TEST_SOURCE = "20+40"
 
@@ -84,7 +84,7 @@ def main():
             score = score_t.item() if isinstance(score_t, torch.Tensor) else score_t
             print(f"  Mask {i}: score={score:.3f}, pts={len(cnt)}, simplified={len(approx)}")
 
-    out = Path("/mnt/g/Bubble_Train/segmentation/test_sam3_output.jpg")
+    out = Path("/home/xgx/Bubble_Training/segmentation/test_sam3_output.jpg")
     cv2.imwrite(str(out), img_bgr)
     print(f"\nSaved: {out}")
     print("PASSED.")
