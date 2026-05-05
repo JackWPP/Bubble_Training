@@ -1,0 +1,43 @@
+# P2 head config: mask_ratio=2 (proto at 320x320), batch=2 (4x more anchors).
+task: segment
+mode: train
+model: null
+data: /home/xgx/Bubble_Training/segmentation/datasets/paper_v4_seg/bubble_seg.yaml
+
+epochs: 100
+batch: 2
+imgsz: 640
+device: 0
+workers: 2
+
+patience: 20
+close_mosaic: 0
+mosaic: 0.0
+mixup: 0.0
+hsv_h: 0.0
+hsv_s: 0.0
+hsv_v: 0.0
+degrees: 0.0
+translate: 0.02
+scale: 0.05
+fliplr: 0.5
+erasing: 0.0
+
+optimizer: SGD
+lr0: 0.001
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+cos_lr: true
+warmup_epochs: 3.0
+
+box: 7.5
+cls: 0.5
+dfl: 1.5
+mask_ratio: 2
+
+save: true
+save_period: 5
+exist_ok: true
+pretrained: false
+verbose: true

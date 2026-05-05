@@ -1,0 +1,43 @@
+# YOLO11s-seg with SPD-Conv. Channels pre-scaled for s=0.50.
+# Original baseline channels (post-scale): P3=128, P4=256, P5=512.
+
+nc: 1
+scale: s
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.50, 512]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]              # 0: 32ch
+  - [-1, 1, Conv, [128, 3, 2]]             # 1: 64ch
+  - [-1, 2, C3k2, [256, False, 0.25]]      # 2: 128ch
+  - [-1, 1, SPDConv, [128, 128]]           # 3: replaces Conv[256,3,2], keep 128ch
+  - [-1, 2, C3k2, [512, False, 0.25]]      # 4: 256ch
+  - [-1, 1, SPDConv, [256, 256]]           # 5: replaces Conv[512,3,2], keep 256ch
+  - [-1, 2, C3k2, [512, True]]             # 6: 256ch
+  - [-1, 1, Conv, [1024, 3, 2]]            # 7: 512ch (keep standard for deep layer)
+  - [-1, 2, C3k2, [1024, True]]            # 8: 512ch
+  - [-1, 1, SPPF, [1024, 5]]               # 9: 512ch
+  - [-1, 2, C2PSA, [1024]]                 # 10: 512ch
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 6], 1, Concat, [1]]              # 512+256=768 → 12
+  - [-1, 2, C3k2, [512, False]]            # 13: 256ch
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 4], 1, Concat, [1]]              # 256+128=384 → 15
+  - [-1, 2, C3k2, [256, False]]            # 16: 128ch (P3)
+
+  - [-1, 1, SPDConv, [128, 128]]           # neck P3→P4: replaces Conv[256,3,2]
+  - [[-1, 13], 1, Concat, [1]]             # 128+256=384 → 18
+  - [-1, 2, C3k2, [512, False]]            # 19: 256ch (P4)
+
+  - [-1, 1, Conv, [512, 3, 2]]             # 256→256→20
+  - [[-1, 10], 1, Concat, [1]]             # 256+512=768 → 21
+  - [-1, 2, C3k2, [1024, True]]            # 22: 512ch (P5)
+
+  - [[16, 19, 22], 1, Segment, [nc, 32, 256]]

@@ -16,6 +16,7 @@ from .bubble_modules import (
     P3MLCRefine,
     P3SAGate,
     SSBRefine,
+    SPDConv,
     SimAMGate,
     WeightedConcat,
     LayerNorm2d,
@@ -44,6 +45,7 @@ def register_bubble_modules() -> None:
         "MDTA": MDTA,
         "GDFN": GDFN,
         "GLRB": GLRB,
+        "SPDConv": SPDConv,
     }
     for name, cls in custom.items():
         setattr(tasks, name, cls)

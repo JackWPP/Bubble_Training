@@ -44,6 +44,7 @@ def parse_args():
     parser.add_argument("--nwd", type=float, default=None, help="NWD loss weight (0.05 from best detection model)")
     parser.add_argument("--nwd-constant", type=float, default=12.8, help="NWD constant C")
     parser.add_argument("--iou-type", type=str, default="CIoU", help="IoU variant for NWD loss")
+    parser.add_argument("--dice", type=float, default=None, help="Dice loss weight for mask (e.g. 0.3)")
     return parser.parse_args()
 
 
@@ -62,6 +63,12 @@ def main():
             iou_type=args.iou_type,
         )
         print(f"NWD loss enabled: weight={args.nwd}, C={args.nwd_constant}, IoU={args.iou_type}")
+
+    # Enable Dice+BCE hybrid mask loss if requested
+    if args.dice is not None and args.dice > 0:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from dice_loss import enable_dice_loss
+        enable_dice_loss(dice_weight=args.dice)
 
     # Load training config overrides
     overrides = {

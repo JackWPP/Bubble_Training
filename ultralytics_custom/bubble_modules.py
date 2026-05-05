@@ -529,3 +529,25 @@ class GLRB(nn.Module):
         x = x + self.gamma1 * self.attn(self.norm1(x))
         x = x + self.gamma2 * self.ffn(self.norm2(x))
         return x
+
+
+class SPDConv(nn.Module):
+    """Space-to-Depth Convolution — lossless spatial downsampling.
+
+    Replaces strided Conv: pixel_unshuffle folds spatial dims into channels,
+    then a regular stride-1 Conv processes the expanded feature volume.
+    Zero spatial information loss vs 75% loss with stride-2 Conv.
+    """
+
+    def __init__(self, c1: int, c2: int | None = None, scale: int = 2, kernel_size: int = 3):
+        super().__init__()
+        c2 = c2 if c2 is not None else c1
+        self.scale = scale
+        expanded = c1 * scale * scale
+        self.conv = nn.Conv2d(expanded, c2, kernel_size, stride=1, padding=kernel_size // 2, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU(inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.pixel_unshuffle(x, self.scale)
+        return self.act(self.bn(self.conv(x)))
